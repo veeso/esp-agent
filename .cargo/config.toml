@@ -3,12 +3,19 @@ include = ["esp-config.toml"]
 
 [target.xtensa-esp32s3-none-elf]
 runner = "espflash flash --monitor --chip esp32s3"
-
-[build]
 rustflags = [
-  "-C", "link-arg=-nostartfiles",
+  "-C",
+  "link-arg=-nostartfiles",
 ]
 
+[target.riscv32imafc-unknown-none-elf]
+runner = "espflash flash --monitor --chip esp32s31 --flash-size 16mb"
+rustflags = [
+  "-C",
+  "force-frame-pointers",
+]
+
+[build]
 target = "xtensa-esp32s3-none-elf"
 
 [unstable]

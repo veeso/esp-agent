@@ -1,37 +1,50 @@
 [package]
-edition      = "2024"
-name         = "static-models-bm"
-rust-version = "1.95"
-version      = "0.1.0"
-
-[[bin]]
 name = "static-models-bm"
-path = "./src/bin/main.rs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+
+[features]
+default = ["esp32s3"]
+esp32s3 = [
+  "esp-alloc/esp32s3",
+  "esp-backtrace/esp32s3",
+  "esp-bootloader-esp-idf/esp32s3",
+  "esp-hal/esp32s3",
+  "esp-println/esp32s3",
+]
+esp32s31 = [
+  "esp-alloc/esp32s31",
+  "esp-backtrace/esp32s31",
+  "esp-bootloader-esp-idf/esp32s31",
+  "esp-hal/esp32s31",
+  "esp-println/esp32s31",
+]
 
 [dependencies]
-esp-hal = { version = "~1.2.2", features = ["esp32s3", "log-04"] }
-
-
-esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32s3", "log-04"] }
-log                    = "0.4.27"
-
-critical-section = "1.2.0"
-esp-alloc = { version = "0.11.0", features = ["esp32s3"] }
-esp-backtrace = { version = "0.20.0", features = [
-  "esp32s3",
+critical-section = "1.2"
+esp-alloc = "0.11"
+esp-backtrace = { version = "0.20", features = [
   "panic-handler",
   "println",
 ] }
-esp-println = { version = "0.18.0", features = ["esp32s3", "log-04"] }
+esp-bootloader-esp-idf = { version = "0.6", features = ["log-04"] }
+# Keep this on 1.2.x to match the project linker script source.
+esp-hal = { version = "1.2.2, <1.3.0", features = ["log-04"] }
+esp-println = { version = "0.18", features = ["log-04"] }
 
 # Text pipeline (no_std): sqrt for L2 normalisation, NFD + Unicode categories for the BERT normalizer.
-libm                  = { version = "0.2", default-features = false }
+libm = { version = "0.2", default-features = false }
+log = "0.4.27"
 unicode-normalization = { version = "0.1", default-features = false }
-unicode-properties    = { version = "0.1", default-features = false, features = ["general-category"] }
+unicode-properties = { version = "0.1", default-features = false, features = ["general-category"] }
 
 [build-dependencies]
 serde_json = "1"
 
+[[bin]]
+name = "static-models-bm"
+path = "./src/bin/main.rs"
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]

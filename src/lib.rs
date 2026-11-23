@@ -8,6 +8,16 @@
 //!
 //! The only heap use at run time is small per-request scratch (normalized text, token
 //! ids, the output vector).
+//!
+//! ## Feature flags
+//!
+//! Select exactly one chip feature. ESP32-S31 builds require
+//! `--no-default-features --features esp32s31`.
+//!
+//! | name       | description          | default |
+//! |------------|----------------------|---------|
+//! | `esp32s3`  | Build for ESP32-S3.  | ✔       |
+//! | `esp32s31` | Build for ESP32-S31. |         |
 #![no_std]
 
 extern crate alloc;

@@ -72,25 +72,35 @@ fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    // The following pins are used to bootstrap the chip. They are available
-    // for use, but check the datasheet of the module for more information on them.
-    // - GPIO0
-    // - GPIO3
-    // - GPIO45
-    // - GPIO46
-    // These GPIO pins are in use by some feature of the module and should not be used.
-    let _gpio33 = peripherals.GPIO33;
-    let _gpio34 = peripherals.GPIO34;
-    let _gpio35 = peripherals.GPIO35;
-    let _gpio36 = peripherals.GPIO36;
-    let _gpio37 = peripherals.GPIO37;
+    #[cfg(feature = "esp32s3")]
+    {
+        // The following pins are used to bootstrap the chip. They are available
+        // for use, but check the datasheet of the module for more information on them.
+        // - GPIO0
+        // - GPIO3
+        // - GPIO45
+        // - GPIO46
+        // These GPIO pins are in use by some feature of the module and should not be used.
+        let _gpio33 = peripherals.GPIO33;
+        let _gpio34 = peripherals.GPIO34;
+        let _gpio35 = peripherals.GPIO35;
+        let _gpio36 = peripherals.GPIO36;
+        let _gpio37 = peripherals.GPIO37;
+    }
 
+    #[cfg(feature = "esp32s3")]
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
+    #[cfg(feature = "esp32s31")]
+    esp_alloc::heap_allocator!(size: 73744);
 
     // Only the receive side of UART0 is claimed: transmission stays with `esp-println`.
+    #[cfg(feature = "esp32s3")]
+    let uart_rx = peripherals.GPIO44;
+    #[cfg(feature = "esp32s31")]
+    let uart_rx = peripherals.GPIO59;
     let uart = Uart::new(peripherals.UART0, UartConfig::default())
         .expect("the default UART configuration is valid")
-        .with_rx(peripherals.GPIO44);
+        .with_rx(uart_rx);
     let mut input = SerialInput {
         usb: UsbSerialJtag::new(peripherals.USB_DEVICE),
         uart,
