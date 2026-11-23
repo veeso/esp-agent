@@ -1,22 +1,19 @@
 fn main() {
     linker_be_nice();
     generate_model_assets();
-    check_xtensa_linker_available();
-    // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
-    println!("cargo:rustc-link-arg=-Tlinkall.x");
+    configure_linker();
 }
 
 #[cfg(unix)]
-fn check_xtensa_linker_available() {
+fn check_xtensa_linker_available(target: &str) {
     println!("cargo:rerun-if-env-changed=PATH");
 
-    let target = std::env::var("TARGET").unwrap_or_default();
     println!(
         "cargo:rerun-if-env-changed={}",
-        cargo_linker_env_var(&target)
+        cargo_linker_env_var(target)
     );
 
-    let linker = xtensa_linker(&target);
+    let linker = xtensa_linker(target);
 
     let error = match std::process::Command::new(&linker)
         .arg("--version")
@@ -41,7 +38,7 @@ fn check_xtensa_linker_available() {
 }
 
 #[cfg(not(unix))]
-fn check_xtensa_linker_available() {}
+fn check_xtensa_linker_available(_: &str) {}
 
 #[cfg(unix)]
 fn xtensa_linker(target: &str) -> String {
@@ -125,11 +122,38 @@ fn linker_be_nice() {
 
         std::process::exit(0);
     }
+}
 
-    println!(
-        "cargo:rustc-link-arg=-Wl,--error-handling-script={}",
-        std::env::current_exe().unwrap().display()
-    );
+fn configure_linker() {
+    let target = std::env::var("TARGET").expect("Cargo sets TARGET for build scripts");
+    let error_handling_script = std::env::current_exe().unwrap();
+
+    if target.starts_with("xtensa-") {
+        check_xtensa_linker_available(&target);
+        println!(
+            "cargo:rustc-link-arg=-Wl,--error-handling-script={}",
+            error_handling_script.display()
+        );
+        println!("cargo:rustc-link-arg=-Tlinkall.x");
+    } else if target == "riscv32imafc-unknown-none-elf" {
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"),
+        );
+        let linker_dir = manifest_dir.join("ld/esp32s31");
+        let linker_script = linker_dir.join("linkall.x");
+
+        println!("cargo:rerun-if-changed={}", linker_script.display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            linker_dir.join("memory-esp32s31.x").display()
+        );
+        println!("cargo:rustc-link-search={}", linker_dir.display());
+        println!(
+            "cargo:rustc-link-arg=--error-handling-script={}",
+            error_handling_script.display()
+        );
+        println!("cargo:rustc-link-arg=-T{}", linker_script.display());
+    }
 }
 
 /// Pre-compiles `model/tokenizer.json` and `model/model.safetensors` into the compact,

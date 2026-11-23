@@ -578,7 +578,7 @@ dependencies = [
  "esp32p4",
  "esp32s2",
  "esp32s3",
- "esp32s31",
+ "esp32s31 0.3.0",
  "fugit",
  "instability",
  "log",
@@ -652,6 +652,7 @@ dependencies = [
  "document-features",
  "esp-metadata-generated",
  "esp32s3",
+ "esp32s31 0.2.0",
 ]
 
 [[package]]
@@ -667,6 +668,7 @@ dependencies = [
  "esp-rom-sys",
  "esp-sync",
  "esp32s3",
+ "esp32s31 0.2.0",
 ]
 
 [[package]]
@@ -772,6 +774,16 @@ version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab08eb1f516ba72b7eb272cdd88cd74899552292a294b831b2143a3e60f1666a"
 dependencies = [
+ "vcell",
+]
+
+[[package]]
+name = "esp32s31"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0c27f1306a6588a4944e8e6dfd691ea4b675866fddd64e51be277f33ecd8ccf"
+dependencies = [
+ "critical-section",
  "vcell",
 ]
 

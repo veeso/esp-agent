@@ -9,34 +9,72 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  rust-checks:
-    name: Rust Checks
+  format:
+    name: Rust Formatting
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        action:
-          - command: build
-            args: --release
-          - command: fmt
-            args: --all -- --check
-          - command: clippy
-            args: --all-features --workspace -- -D warnings
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Setup Rust
-        uses: esp-rs/xtensa-toolchain@v1.5
+        uses: esp-rs/xtensa-toolchain@ec6d36527049a7f4fb2cb0c1a644668c1bb8a2a4 # v1.7.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           default: true
           buildtargets: esp32s3
           ldproxy: false
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  rust-checks:
+    name: Rust Checks (${{ matrix.chip }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: ESP32-S3
+            esp32s31: false
+          - chip: ESP32-S31
+            esp32s31: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        uses: esp-rs/xtensa-toolchain@ec6d36527049a7f4fb2cb0c1a644668c1bb8a2a4 # v1.7.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          default: true
+          buildtargets: esp32s3
+          ldproxy: false
+      - name: Install rust-src and confirm RISC-V target support
+        run: |
+          rustup component add rust-src
+          rustup component list --installed | grep -Fx rust-src
+          rustc --print target-list | grep -Fx riscv32imafc-unknown-none-elf
       - name: Enable caching
-        uses: Swatinem/rust-cache@v2
-      - name: Run command
-        run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Build ESP32-S3
+        if: matrix.esp32s31 == false
+        run: cargo build --locked --release
+      - name: Build ESP32-S31
+        if: matrix.esp32s31 == true
+        run: cargo build --locked --release --target riscv32imafc-unknown-none-elf --no-default-features --features esp32s31
+      - name: Lint ESP32-S3
+        if: matrix.esp32s31 == false
+        run: cargo clippy --locked --workspace -- -D warnings
+      - name: Lint ESP32-S31
+        if: matrix.esp32s31 == true
+        run: cargo clippy --locked --workspace --target riscv32imafc-unknown-none-elf --no-default-features --features esp32s31 -- -D warnings
