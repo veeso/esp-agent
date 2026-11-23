@@ -12,6 +12,7 @@
 
 extern crate alloc;
 
+pub mod console;
 pub mod embedder;
 pub mod tokenizer;
 
