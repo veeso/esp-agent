@@ -1,8 +1,6 @@
 //! Checks the potion-2M model of the example firmware end to end.
 
-use esp_local_agent::{
-    Embedder, EmbedderConfig, Model, WordPieceTokenizer, cosine_similarity, model,
-};
+use esp_agent::{Embedder, EmbedderConfig, Model, WordPieceTokenizer, cosine_similarity, model};
 
 static POTION: Model = model!("../../examples/semantic-search/model");
 

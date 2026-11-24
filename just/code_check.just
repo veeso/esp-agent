@@ -27,12 +27,12 @@ clippy args="": (clippy_s3 args) (clippy_s31 args)
 # Build the library documentation for the ESP32-S3 and deny warnings.
 [group('code-check')]
 doc_s3 args="":
-  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-local-agent --package esp-local-agent-macros {{ args }}
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ args }}
 
 # Build the library documentation for the ESP32-S31 and deny warnings.
 [group('code-check')]
 doc_s31 args="":
-  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-local-agent --package esp-local-agent-macros {{ s31_target }} {{ args }}
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ s31_target }} {{ args }}
 
 # Build the library documentation for both chips and deny warnings.
 [group('code-check')]
@@ -41,7 +41,7 @@ doc args="": (doc_s3 args) (doc_s31 args)
 # Run the library tests on the host, rebuilding std for the host target.
 [group('code-check')]
 test args="":
-  cargo test --locked --package esp-local-agent --package esp-local-agent-macros --target "$(rustc -vV | sed -n 's/^host: //p')" --config 'unstable.build-std=["std","test","panic_unwind"]' {{ args }}
+  cargo test --locked --package esp-agent --package esp-agent-macros --target "$(rustc -vV | sed -n 's/^host: //p')" --config 'unstable.build-std=["std","test","panic_unwind"]' {{ args }}
 
 # Check advisories, licenses, bans, and dependency sources.
 [group('code-check')]

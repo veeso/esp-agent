@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn expand_reports_compile_errors() {
         let dir = std::env::temp_dir().join(format!(
-            "esp-local-agent-macros-expand-missing-{pid}",
+            "esp-agent-macros-expand-missing-{pid}",
             pid = std::process::id()
         ));
         let message = compile(&dir)

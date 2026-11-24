@@ -490,6 +490,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp-agent"
+version = "0.1.0"
+dependencies = [
+ "esp-agent-macros",
+ "libm",
+ "serde_json",
+ "tempfile",
+ "unicode-normalization",
+ "unicode-properties",
+]
+
+[[package]]
+name = "esp-agent-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tempfile",
+]
+
+[[package]]
 name = "esp-alloc"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -627,30 +651,6 @@ dependencies = [
  "quote",
  "syn 2.0.119",
  "termcolor",
-]
-
-[[package]]
-name = "esp-local-agent"
-version = "0.1.0"
-dependencies = [
- "esp-local-agent-macros",
- "libm",
- "serde_json",
- "tempfile",
- "unicode-normalization",
- "unicode-properties",
-]
-
-[[package]]
-name = "esp-local-agent-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde",
- "serde_json",
- "syn 2.0.119",
- "tempfile",
 ]
 
 [[package]]
@@ -1298,11 +1298,11 @@ name = "semantic-search"
 version = "0.1.0"
 dependencies = [
  "critical-section",
+ "esp-agent",
  "esp-alloc",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
  "esp-hal",
- "esp-local-agent",
  "esp-println",
  "log",
 ]

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
-repository = "https://github.com/veeso/esp-local-agent"
+repository = "https://github.com/veeso/esp-agent"
 rust-version = "1.97"
 description = "Example firmware: interactive semantic search over the serial console"
 
@@ -27,10 +27,10 @@ esp32s31 = [
 
 [dependencies]
 critical-section = { workspace = true }
+esp-agent = { workspace = true }
 esp-alloc = { workspace = true }
 esp-backtrace = { workspace = true, features = ["panic-handler", "println"] }
 esp-bootloader-esp-idf = { workspace = true, features = ["log-04"] }
 esp-hal = { workspace = true, features = ["log-04"] }
-esp-local-agent = { workspace = true }
 esp-println = { workspace = true, features = ["log-04"] }
 log = { workspace = true }

@@ -10,6 +10,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use esp_agent::{Embedder, Model, cosine_similarity};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
@@ -17,7 +18,6 @@ use esp_hal::time::Instant;
 use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
 use esp_hal::{Blocking, main};
-use esp_local_agent::{Embedder, Model, cosine_similarity};
 use esp_println::{Printer, print, println};
 use log::info;
 
@@ -33,7 +33,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 /// The potion-2M static embedding model, embedded in the firmware image and read in place
 /// from flash. The path is relative to this crate.
-static POTION: Model = esp_local_agent::model!("model");
+static POTION: Model = esp_agent::model!("model");
 
 const PROMPT: &str = "> ";
 

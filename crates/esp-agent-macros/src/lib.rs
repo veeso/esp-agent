@@ -1,4 +1,4 @@
-//! Compile-time model embedding for `esp-local-agent`.
+//! Compile-time model embedding for `esp-agent`.
 
 mod compile;
 mod expand;

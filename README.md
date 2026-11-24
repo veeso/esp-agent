@@ -1,13 +1,13 @@
-# esp-local-agent
+# esp-agent
 
-[![CI](https://github.com/veeso/esp-local-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/veeso/esp-local-agent/actions/workflows/ci.yml)
-[![TruffleHog](https://github.com/veeso/esp-local-agent/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/veeso/esp-local-agent/actions/workflows/trufflehog.yml)
-[![zizmor](https://github.com/veeso/esp-local-agent/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/esp-local-agent/actions/workflows/zizmor.yml)
+[![CI](https://github.com/veeso/esp-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/ci.yml)
+[![TruffleHog](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml)
+[![zizmor](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
 
 A bare-metal (`no_std`, Rust) local agent library for ESP32-S3 and ESP32-S31.
 
-The goal of `esp-local-agent` is to run a small agent entirely on the chip, with
+The goal of `esp-agent` is to run a small agent entirely on the chip, with
 prompts, skills, and context embedded in the firmware image and nothing sent to
 the cloud. It is a library that you add to your own ESP firmware project. The
 project is at an early stage: today it ships the first building block, an
@@ -34,22 +34,22 @@ a Git dependency:
 
 ```toml
 [dependencies]
-esp-local-agent = { git = "https://github.com/veeso/esp-local-agent" }
+esp-agent = { git = "https://github.com/veeso/esp-agent" }
 ```
 
-If your firmware uses a local checkout, append `crates/esp-local-agent` to
+If your firmware uses a local checkout, append `crates/esp-agent` to
 the dependency path that previously pointed to the repository root. For a
 sibling checkout, use this entry in your firmware's `Cargo.toml`:
 
 ```toml
 [dependencies]
-esp-local-agent = { path = "../esp-local-agent/crates/esp-local-agent" }
+esp-agent = { path = "../esp-agent/crates/esp-agent" }
 ```
 
 Then embed text from your firmware:
 
 ```rust
-use esp_local_agent::{Embedder, Model, model};
+use esp_agent::{Embedder, Model, model};
 
 static POTION: Model = model!("model");
 
@@ -65,8 +65,8 @@ copied, and `config_mut` changes the settings (the truncation length and the
 normalization) while the firmware runs. A firmware can call `model!` several
 times to embed several models and build one `Embedder` for each.
 
-If your firmware uses `esp_local_agent::DEFAULT_MAX_LENGTH`, replace it with
-`esp_local_agent::EmbedderConfig::DEFAULT_MAX_LENGTH`.
+If your firmware uses `esp_agent::DEFAULT_MAX_LENGTH`, replace it with
+`esp_agent::EmbedderConfig::DEFAULT_MAX_LENGTH`.
 
 The library does not depend on a HAL and does not configure the linker, so your
 project keeps full control of the chip setup. Your firmware must:
@@ -80,14 +80,14 @@ firmware that uses the library.
 
 ## How it works
 
-- `crates/esp-local-agent/src/lib.rs` defines the public `model!` macro. Its
-  `compile_model!` helper in `crates/esp-local-agent-macros/` turns
+- `crates/esp-agent/src/lib.rs` defines the public `model!` macro. Its
+  `compile_model!` helper in `crates/esp-agent-macros/` turns
   `tokenizer.json` into a sorted binary vocabulary and reads the shape of
   `model.safetensors` while the firmware builds. It fails the build if the
   table contains non-finite weights, has a dtype other than F32, or its size disagrees with its shape.
-- `crates/esp-local-agent/src/model.rs` is the `Model` value that `model!` produces.
-- `crates/esp-local-agent/src/tokenizer.rs` is a `no_std` BERT WordPiece tokenizer: normalize (clean text, CJK spacing, accent stripping, lowercase), split on whitespace and punctuation, then greedy longest-match WordPiece.
-- `crates/esp-local-agent/src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`). Its settings live in `EmbedderConfig`.
+- `crates/esp-agent/src/model.rs` is the `Model` value that `model!` produces.
+- `crates/esp-agent/src/tokenizer.rs` is a `no_std` BERT WordPiece tokenizer: normalize (clean text, CJK spacing, accent stripping, lowercase), split on whitespace and punctuation, then greedy longest-match WordPiece.
+- `crates/esp-agent/src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`). Its settings live in `EmbedderConfig`.
 - `examples/semantic-search` is an example firmware. It embeds the potion-2M
   model from `examples/semantic-search/model/`, embeds sample sentences, and
   runs an interactive serial search console that prints timings and ranked
@@ -261,7 +261,7 @@ GitHub Actions provides:
 
 ## Credits
 
-`esp-local-agent` started as a fork of
+`esp-agent` started as a fork of
 [`static-models-bm`](https://github.com/qdrant-labs/static-models-bm) by
 [qdrant-labs](https://github.com/qdrant-labs), created by
 [AstraBert](https://github.com/AstraBert). The tokenizer, the embedder, and the
@@ -274,4 +274,4 @@ tokenizer and pooling are validated against.
 
 ## License
 
-`esp-local-agent` is licensed under the [Apache License 2.0](LICENSE).
+`esp-agent` is licensed under the [Apache License 2.0](LICENSE).
