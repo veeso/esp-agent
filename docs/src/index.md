@@ -14,14 +14,6 @@ its inputs and results on the chip.
 - `Agent::prompt` finds the stored texts closest to a query. `Agent::turn` uses
   a handler you provide to run a command and can keep context for a follow-up.
 
-The project roadmap covers these firmware capabilities.
-
-- [x] On-device text embeddings and semantic search with potion-2M.
-- [ ] Embeddable prompts compiled into the firmware image.
-- [ ] Embeddable skills the agent can select and run.
-- [ ] Embeddable context the agent can retrieve with the embedder.
-- [ ] A local agent loop that ties prompts, skills, and context together.
-
 ## Quick start
 
 Add the library to your firmware as a Git dependency.
