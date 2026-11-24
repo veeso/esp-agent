@@ -8,9 +8,8 @@
 #![deny(clippy::large_stack_frames)]
 
 use alloc::string::String;
-use alloc::vec::Vec;
 
-use esp_agent::{Embedder, Model, cosine_similarity};
+use esp_agent::{Embedder, Model, Retriever};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
@@ -22,10 +21,13 @@ use esp_println::{Printer, print, println};
 use log::info;
 
 use crate::console::{Event, LineEditor};
+use crate::corpus::{CORPUS, TOP_K};
 
 extern crate alloc;
 
 mod console;
+mod corpus;
+mod results;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -36,21 +38,6 @@ esp_bootloader_esp_idf::esp_app_desc!();
 static POTION: Model = esp_agent::model!("model");
 
 const PROMPT: &str = "> ";
-
-/// Number of closest sentences printed for each query.
-const TOP_K: usize = 3;
-
-/// Sentences the console searches. Each one is embedded once at startup.
-const CORPUS: [&str; 8] = [
-    "The quick brown fox jumps over the lazy dog.",
-    "A fast auburn fox leaps above a sleepy hound.",
-    "Quarterly revenue grew 12% year over year.",
-    "Qdrant is a vector search engine written in Rust.",
-    "The ESP32-S3 is a dual-core microcontroller with Wi-Fi and Bluetooth.",
-    "Paris is the capital of France and sits on the river Seine.",
-    "Water boils at 100 degrees Celsius at sea level.",
-    "Rust guarantees memory safety without a garbage collector.",
-];
 
 /// Pause between polls of the serial ports when no byte is waiting.
 const POLL_INTERVAL_US: u32 = 500;
@@ -123,7 +110,8 @@ fn main() -> ! {
         kib = POTION.vocab_size() * POTION.dim() * size_of::<f32>() / 1024
     );
 
-    let corpus_vectors: Vec<Vec<f32>> = CORPUS.iter().map(|text| embedder.embed(text)).collect();
+    let mut retriever = Retriever::with_capacity(embedder, CORPUS.len());
+    retriever.extend(CORPUS.map(|text| (text, ())));
     info!("indexed {count} sentences", count = CORPUS.len());
 
     println!();
@@ -142,7 +130,7 @@ fn main() -> ! {
         if query.is_empty() {
             continue;
         }
-        answer(&embedder, &corpus_vectors, query);
+        answer(&retriever, query);
     }
 }
 
@@ -178,29 +166,13 @@ fn read_byte(input: &mut SerialInput<'_>) -> Option<u8> {
     None
 }
 
-/// Embeds `query` and prints the [`TOP_K`] closest indexed sentences.
-fn answer(embedder: &Embedder, corpus_vectors: &[Vec<f32>], query: &str) {
+/// Searches `retriever` for `query` and prints the [`TOP_K`] closest indexed sentences.
+fn answer(retriever: &Retriever<()>, query: &str) {
     let start = Instant::now();
-    let vector = embedder.embed(query);
-    let embed_us = start.elapsed().as_micros();
-
-    let mut ranked: Vec<(usize, f32)> = corpus_vectors
-        .iter()
-        .map(|candidate| cosine_similarity(&vector, candidate))
-        .enumerate()
-        .collect();
-    ranked.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
+    let hits = retriever.search(query, TOP_K);
     let total_us = start.elapsed().as_micros();
 
-    println!("{total_us} us total ({embed_us} us to embed the query)");
-    ranked
-        .iter()
-        .take(TOP_K)
-        .enumerate()
-        .for_each(|(rank, &(index, score))| {
-            let rank = rank + 1;
-            let text = CORPUS[index];
-            println!("  {rank}. [{score:.3}] {text}");
-        });
+    println!("{total_us} us");
+    results::render_hits(&hits, |line| println!("{line}"));
     println!();
 }

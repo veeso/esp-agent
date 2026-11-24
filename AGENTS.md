@@ -53,8 +53,10 @@ keep building for the host target as well as for both chips.
   which compiles a model folder at build time into a `RawModel` expression.
   The public `model!` macro passes it to the library constructor to build a `Model`.
 - `crates/esp-agent/src/model.rs` is the `Model` value,
-  `crates/esp-agent/src/tokenizer.rs` is the tokenizer, and
-  `crates/esp-agent/src/embedder.rs` is the embedder and its configuration.
+  `crates/esp-agent/src/tokenizer.rs` is the tokenizer,
+  `crates/esp-agent/src/embedder.rs` is the embedder and its configuration,
+  `crates/esp-agent/src/index.rs` is the vector index with payloads, and
+  `crates/esp-agent/src/retriever.rs` pairs an embedder with an index to search text.
 - `crates/esp-agent/tests/fixtures/` holds the tiny model folders the integration tests embed.
 - `examples/semantic-search/` is the example firmware crate:
   `src/main.rs` is its entry point, `src/console.rs` is the sans-IO serial
