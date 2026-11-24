@@ -57,8 +57,10 @@ keep building for the host target as well as for both chips.
 - `crates/esp-agent/src/model.rs` is the `Model` value,
   `crates/esp-agent/src/tokenizer.rs` is the tokenizer,
   `crates/esp-agent/src/embedder.rs` is the embedder and its configuration,
-  `crates/esp-agent/src/index.rs` is the vector index with payloads, and
-  `crates/esp-agent/src/retriever.rs` pairs an embedder with an index to search text.
+  `crates/esp-agent/src/index.rs` is the vector index with payloads,
+  `crates/esp-agent/src/retriever.rs` pairs an embedder with an index to search text, and
+  `crates/esp-agent/src/scratch.rs` is `Scratch`, the reusable buffers of the
+  allocation-free paths.
 - `crates/esp-agent-bench/` holds the host benchmarks: `src/lib.rs` has the shared
   model and inputs, `benches/` has one file per group (`tokenize`, `embed`,
   `search`), and `src/report.rs` renders the criterion results as Markdown for the

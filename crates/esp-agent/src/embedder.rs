@@ -4,7 +4,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::model::Model;
-use crate::tokenizer::WordPieceTokenizer;
+use crate::scratch::Scratch;
+use crate::tokenizer::{NormalizedText, WordPieceTokenizer};
 
 /// Smallest norm used as a divisor, so that zero vectors never divide by zero.
 const NORM_EPSILON: f32 = 1e-12;
@@ -112,12 +113,42 @@ impl Embedder {
     ///
     /// Panics if `out.len()` is not equal to [`dim`](Self::dim).
     pub fn embed_into(&self, text: &str, out: &mut [f32]) {
+        self.embed_with(text, &mut Scratch::new(), out);
+    }
+
+    /// Embeds `text` into `out` using the buffers of `scratch`.
+    ///
+    /// Like [`embed_into`](Self::embed_into), but a warm `scratch` makes the call
+    /// allocation-free. `out` must hold exactly [`dim`](Self::dim) floats.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `out.len()` is not equal to [`dim`](Self::dim).
+    pub fn embed_with(&self, text: &str, scratch: &mut Scratch, out: &mut [f32]) {
+        let Scratch {
+            normalized, ids, ..
+        } = scratch;
+        self.embed_parts(text, normalized, ids, out);
+    }
+
+    /// Embeds `text` into `out` through the given buffers, which are cleared first.
+    ///
+    /// Takes the buffers of a [`Scratch`] separately, so a caller can keep another of its
+    /// fields borrowed as `out`.
+    pub(crate) fn embed_parts(
+        &self,
+        text: &str,
+        normalized: &mut NormalizedText,
+        ids: &mut Vec<u32>,
+        out: &mut [f32],
+    ) {
         assert_eq!(
             out.len(),
             self.dim(),
             "output buffer must hold `dim` floats"
         );
-        self.pool(&self.tokenizer().encode(text), out);
+        self.tokenizer().encode_parts(text, normalized, ids, false);
+        self.pool(ids, out);
     }
 
     /// Mean-pools the rows of `ids` into `out`, then optionally L2-normalizes.
@@ -186,7 +217,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{Embedder, EmbedderConfig, cosine_similarity};
-    use crate::test_util;
+    use crate::{Scratch, test_util};
 
     const ZERO: &[f32] = &[0.0, 0.0];
 
@@ -280,8 +311,14 @@ mod tests {
     #[test]
     fn zero_max_length_embeds_to_zero() {
         let mut embedder = embedder(true);
+        let mut scratch = Scratch::new();
+        let mut out = [0.0; 2];
+        embedder.embed_with("hello", &mut scratch, &mut out);
+        assert_eq!(out, [1.0, 0.0]);
+
         embedder.config_mut().max_length = 0;
-        assert_eq!(embedder.embed("hello world"), [0.0, 0.0]);
+        embedder.embed_with("hello world", &mut scratch, &mut out);
+        assert_eq!(out, [0.0, 0.0]);
     }
 
     #[test]
@@ -308,6 +345,17 @@ mod tests {
         let mut out = [9.0; 2];
         embedder.embed_into("hello world", &mut out);
         assert_eq!(out.as_slice(), embedder.embed("hello world"));
+    }
+
+    #[test]
+    fn reused_scratch_does_not_leak_between_calls() {
+        let embedder = embedder(true);
+        let mut scratch = Scratch::new();
+        let mut out = [9.0; 2];
+        embedder.embed_with("hello world hello world un", &mut scratch, &mut out);
+        embedder.embed_with("hello", &mut scratch, &mut out);
+        assert_eq!(out, [1.0, 0.0]);
+        assert_eq!(out.as_slice(), embedder.embed("hello"));
     }
 
     #[test]

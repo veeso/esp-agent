@@ -8,8 +8,9 @@
 #![deny(clippy::large_stack_frames)]
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
-use esp_agent::{Embedder, Model, Retriever};
+use esp_agent::{Embedder, Hit, Model, Retriever, Scratch};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
@@ -123,6 +124,9 @@ fn main() -> ! {
     println!();
 
     let mut editor = LineEditor::new();
+    // Reused by every query, so searching does not touch the heap once they are warm.
+    let mut scratch = Scratch::new();
+    let mut hits = Vec::with_capacity(TOP_K);
     loop {
         print!("{PROMPT}");
         let line = read_line(&mut input, &mut editor);
@@ -130,7 +134,7 @@ fn main() -> ! {
         if query.is_empty() {
             continue;
         }
-        answer(&retriever, query);
+        answer(&retriever, query, &mut scratch, &mut hits);
     }
 }
 
@@ -167,12 +171,17 @@ fn read_byte(input: &mut SerialInput<'_>) -> Option<u8> {
 }
 
 /// Searches `retriever` for `query` and prints the [`TOP_K`] closest indexed sentences.
-fn answer(retriever: &Retriever<()>, query: &str) {
+fn answer<'a>(
+    retriever: &'a Retriever<()>,
+    query: &str,
+    scratch: &mut Scratch,
+    hits: &mut Vec<Hit<'a, ()>>,
+) {
     let start = Instant::now();
-    let hits = retriever.search(query, TOP_K);
+    retriever.search_with(query, TOP_K, scratch, hits);
     let total_us = start.elapsed().as_micros();
 
     println!("{total_us} us");
-    results::render_hits(&hits, |line| println!("{line}"));
+    results::render_hits(hits, &CORPUS, |line| println!("{line}"));
     println!();
 }

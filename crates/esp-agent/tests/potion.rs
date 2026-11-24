@@ -1,7 +1,8 @@
 //! Checks the potion-2M model of the example firmware end to end.
 
 use esp_agent::{
-    Embedder, EmbedderConfig, Model, Retriever, WordPieceTokenizer, cosine_similarity, model,
+    Embedder, EmbedderConfig, Model, Retriever, Scratch, WordPieceTokenizer, cosine_similarity,
+    model,
 };
 
 #[path = "../../../examples/semantic-search/src/corpus.rs"]
@@ -35,6 +36,18 @@ fn potion_ranks_paraphrases_above_unrelated_sentences() {
 }
 
 #[test]
+fn potion_embed_with_matches_embed() {
+    let embedder = Embedder::new(POTION);
+    let mut scratch = Scratch::new();
+    let mut out = vec![0.0; POTION.dim()];
+
+    for sentence in CORPUS {
+        embedder.embed_with(sentence, &mut scratch, &mut out);
+        assert_eq!(out, embedder.embed(sentence), "{sentence}");
+    }
+}
+
+#[test]
 fn public_types_implement_debug() {
     fn assert_debug<T: core::fmt::Debug>() {}
 
@@ -48,6 +61,7 @@ fn public_types_implement_debug() {
 fn potion_matches_the_firmware_ranking() {
     let mut retriever = Retriever::new(Embedder::new(POTION));
     retriever.extend(CORPUS.map(|text| (text, ())));
+    let mut scratch = Scratch::new();
 
     for (question, expected) in [
         (
@@ -60,9 +74,10 @@ fn potion_matches_the_firmware_ranking() {
             [(4, "0.054"), (2, "0.051"), (5, "0.035")],
         ),
     ] {
-        let hits = retriever.search(question, TOP_K);
+        let mut hits = Vec::with_capacity(TOP_K);
+        retriever.search_with(question, TOP_K, &mut scratch, &mut hits);
         let mut lines = Vec::new();
-        results::render_hits(&hits, |line| lines.push(line.to_string()));
+        results::render_hits(&hits, &CORPUS, |line| lines.push(line.to_string()));
         let expected_lines: Vec<_> = (1..)
             .zip(expected)
             .map(|(rank, (index, score))| {
