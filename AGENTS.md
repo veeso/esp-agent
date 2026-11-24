@@ -77,6 +77,10 @@ keep building for the host target as well as for both chips.
   linker, and `ld/esp32s31/` holds the ESP32-S31 linker scripts.
 - Use `module_name.rs`; never introduce `mod.rs`.
 
+- `docs/` contains the mdBook website. Pages in `docs/src/` include code from
+  `examples/semantic-search/src/` through `ANCHOR` comments. Preserve these
+  comments when editing the examples.
+
 ## ESP notes
 
 - Build the example for exactly one chip per build: its `esp32s3` feature
@@ -142,6 +146,8 @@ just fmt
 just fmt_check
 just clippy "-- -D warnings"
 just doc
+just book
+just book_serve
 just test
 just test_bench
 just bench_all
@@ -174,6 +180,7 @@ The local recipes expect:
 - The standard Rust toolchain 1.97 (`rustup toolchain install 1.97`).
 - espflash 4.6.0 or newer.
 - just.
+- mdBook 0.5.4.
 - dprint 0.56.1 and nightly rustfmt.
 - cargo-deny.
 - TruffleHog.
@@ -186,6 +193,7 @@ passed or silently replace the repository command with a weaker check.
 
 ## Documentation
 
+- Update the pages in `docs/src/` when public APIs or firmware examples change.
 - Write task-oriented documentation with runnable examples.
 - Use ATX headings and fenced code blocks with language identifiers.
 - Keep Markdown lines readable, tables aligned, and files terminated by one

@@ -4,6 +4,7 @@
 [![TruffleHog](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml)
 [![zizmor](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
+[![Docs](https://img.shields.io/badge/docs-veeso.github.io-blue)](https://veeso.github.io/esp-agent/)
 
 A bare-metal (`no_std`, Rust) local agent library for ESP32-S3 and ESP32-S31.
 
@@ -19,6 +20,9 @@ include. The semantic search example embeds `potion-base-2M` and reads
 its 7.2 MiB embedding table (F32, 29,528 tokens x 64 dims) and tokenizer
 vocabulary in place from flash. A reusable `Scratch` retains heap capacity between
 queries. Calls that fit those buffers need no new allocation for scratch data.
+
+Read the [documentation website](https://veeso.github.io/esp-agent/) for guides
+to choosing a model, searching stored texts, and handling conversation turns.
 
 ## Roadmap
 
@@ -258,6 +262,7 @@ tests embed it, and later runs reuse the downloaded files.
 - `espflash` 4.6.0 or newer.
 - [just](https://just.systems) for task execution.
 - [dprint](https://dprint.dev) 0.56.1 and nightly rustfmt for formatting.
+- [mdBook](https://rust-lang.github.io/mdBook/) 0.5.4 for the documentation website.
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) for dependency
   policy.
 - [TruffleHog](https://github.com/trufflesecurity/trufflehog) for secret
@@ -274,7 +279,7 @@ tests embed it, and later runs reuse the downloaded files.
 On macOS with Homebrew, install the packaged tools with:
 
 ```sh
-brew install cargo-deny dprint git-cliff just shellcheck trufflehog zizmor
+brew install cargo-deny dprint git-cliff just mdbook shellcheck trufflehog zizmor
 rustup toolchain install nightly --profile minimal --component rustfmt
 ```
 
@@ -403,6 +408,8 @@ just fmt
 just fmt_check
 just clippy "-- -D warnings"
 just doc
+just book
+just book_serve
 just test
 just test_bench
 just bench_all
@@ -421,6 +428,17 @@ just changelog 0.1.0
 For recipes with both chip variants, the unsuffixed recipe runs `_s3` and then `_s31`.
 `build_host`, `test`, `test_bench`, `clippy_bench`, and the `bench` recipes run on
 your computer with the standard Rust toolchain.
+
+### Build the documentation website
+
+From the repository root, build the site with mdBook 0.5.4.
+
+```sh
+just book
+```
+
+The entry page is `docs/book/index.html`. To preview the site and rebuild on
+changes, run `just book_serve`.
 
 ### Run the quality gate
 
@@ -494,6 +512,8 @@ GitHub Actions provides:
   `criterion-report` artifact for 30 days, and the results are written to the job
   summary. On pull requests from this repository the workflow also posts the
   numbers as one comment that each push updates.
+- The documentation website builds on pull requests that touch the book or its
+  examples and deploys to GitHub Pages from `main`.
 - TruffleHog secret scanning.
 - zizmor workflow-security auditing.
 

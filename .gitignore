@@ -32,3 +32,6 @@ target/
 
 # Downloaded example model
 /examples/semantic-search/model/
+
+# mdBook output
+/docs/book/

@@ -22,9 +22,10 @@
     "**/target",
     ".claude/plans",
     ".superpowers",
-    "docs/superpowers",
     "Cargo.lock",
     "coverage",
+    "docs/book",
+    "docs/superpowers",
     "examples/semantic-search/ld",
     "examples/semantic-search/model",
     "lcov.info"

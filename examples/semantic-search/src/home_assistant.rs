@@ -45,12 +45,14 @@ fn main() -> ! {
 
     let mut input = board::init_serial();
 
+    // ANCHOR: agent_setup
     let mut knowledge = Knowledge::with_capacity(Embedder::new(POTION), EXAMPLES.len());
     knowledge.extend(EXAMPLES);
     let mut agent = Agent::builder(POTION, &knowledge)
         .context(CONTEXT_TARGETS)
         .build()
         .expect("the examples are embedded with POTION");
+    // ANCHOR_END: agent_setup
     info!("registered {count} examples", count = EXAMPLES.len());
 
     println!();

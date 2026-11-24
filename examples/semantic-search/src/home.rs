@@ -15,6 +15,7 @@ pub const DESK: TargetId = 1;
 /// Identifier of the floor lamp in the catalog.
 pub const FLOOR: TargetId = 2;
 
+// ANCHOR: examples
 /// Texts registered in the knowledge store, one per supported action.
 pub const EXAMPLES: [(&str, Action); 2] = [
     ("Turn on the lamp", Action::TurnOn),
@@ -29,6 +30,7 @@ pub enum Action {
     /// Set the brightness, in percent from 0 to 100.
     SetBrightness(u8),
 }
+// ANCHOR_END: examples
 
 /// Why a command could not run on the simulated devices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,6 +206,7 @@ impl Home {
     }
 }
 
+// ANCHOR: handler
 impl TurnHandler<Action> for Home {
     type Success = Done;
     type Error = HomeError;
@@ -283,6 +286,7 @@ impl TurnHandler<Action> for Home {
         })
     }
 }
+// ANCHOR_END: handler
 
 fn parse_selector(text: &str) -> TargetSelector<'_> {
     let target = text.trim();

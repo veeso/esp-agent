@@ -1,0 +1,79 @@
+name: Documentation website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "examples/semantic-search/src/**"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "examples/semantic-search/src/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mdBook
+        uses: peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08 # v2.0.0
+        with:
+          mdbook-version: 0.5.4
+
+      - name: Check included source
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          include = re.compile(r"\{\{#include\s+([^\s:}]+)(?::([\w-]+))?\s*\}\}")
+          for chapter in Path("docs/src").rglob("*.md"):
+              for path, anchor in include.findall(chapter.read_text(encoding="utf-8")):
+                  source = chapter.parent / path
+                  if not source.is_file():
+                      raise SystemExit(f"{chapter}: missing include {path}")
+                  if anchor:
+                      start = rf"^[ \t]*// ANCHOR:[ \t]*{re.escape(anchor)}[ \t]*$"
+                      end = rf"^[ \t]*// ANCHOR_END:[ \t]*{re.escape(anchor)}[ \t]*$"
+                      content = source.read_text(encoding="utf-8")
+                      section = re.search(start + r"\n(.*?)" + end, content, re.M | re.S)
+                      if not section or not section[1].strip():
+                          raise SystemExit(f"{chapter}: missing or empty anchor {path}:{anchor}")
+          PY
+
+      - name: Build the book
+        run: mdbook build docs
+
+      - name: Upload the book
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/book
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
