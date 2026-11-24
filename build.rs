@@ -165,7 +165,8 @@ fn configure_linker() {
 ///   the vocabulary in place, with no JSON parsing and no heap use.
 /// - `model_meta.rs`: constants describing the embedding table and the tokenizer.
 fn generate_model_assets() {
-    use std::{env, fs, path::PathBuf};
+    use std::path::PathBuf;
+    use std::{env, fs};
 
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
