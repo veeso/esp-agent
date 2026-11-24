@@ -7,6 +7,20 @@ s31_target := "--target riscv32imafc-unknown-none-elf"
 # Cargo flags that select the ESP32-S31 target and the example chip feature.
 s31_flags := s31_target + " --no-default-features --features " + example + "/esp32s31"
 
+# Standard Rust toolchain for regular computers; keep it equal to `rust-version`.
+host_toolchain := "1.97"
+
+# Cargo toolchain override for regular computers, which bypasses the ESP toolchain in rust-toolchain.toml.
+host_cargo := "cargo +" + host_toolchain
+
+# Library packages that build and test on regular computers.
+host_packages := "--package esp-agent --package esp-agent-macros"
+
+# Build the library for this computer with the standard Rust toolchain.
+[group('build')]
+build_host args="":
+  {{ host_cargo }} build --locked {{ host_packages }} --target host-tuple {{ args }}
+
 # Build the example firmware for the ESP32-S3 in release mode.
 [group('build')]
 build_s3 args="":

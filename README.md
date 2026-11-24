@@ -97,6 +97,30 @@ firmware that uses the library.
 The tokenizer produces the same token IDs as [`statembed`](https://github.com/AstraBert/statembed) on inputs covering accents, CJK, emoji, control characters, and truncation.
 Pooled embeddings agree within floating-point rounding precision.
 
+## Build and test on a computer
+
+The library also builds and runs on regular desktop and server computers with
+the standard Rust toolchain. You do not need the ESP toolchain or a board for
+this. CI checks it on Linux. The example firmware still needs a chip.
+
+Install [rustup](https://rustup.rs), [just](https://just.systems), and the
+Rust 1.97 toolchain:
+
+```sh
+rustup toolchain install 1.97 --profile minimal
+```
+
+Then build the library and run its tests for your computer:
+
+```sh
+just build_host
+just test
+```
+
+Both recipes call `cargo +1.97 ... --target host-tuple`, which bypasses the ESP
+toolchain pinned in `rust-toolchain.toml` and the ESP32-S3 default target in
+`.cargo/config.toml`.
+
 ## Requirements
 
 - An ESP32-S3 or ESP32-S31-Korvo-1 with 16 MiB of flash.
@@ -106,6 +130,9 @@ Pooled embeddings agree within floating-point rounding precision.
   ```sh
   espup install --toolchain-version 1.97.0.0
   ```
+
+- The standard Rust 1.97 toolchain, for the library build and tests on your
+  computer (see [Build and test on a computer](#build-and-test-on-a-computer)).
 
 - `espflash` 4.6.0 or newer.
 - [just](https://just.systems) for task execution.
@@ -201,6 +228,7 @@ Run `just` to list every recipe.
 just build
 just build_s3
 just build_s31
+just build_host
 just run_s3
 just run_s31
 just monitor
@@ -219,13 +247,14 @@ just changelog 0.1.0
 ```
 
 For recipes with both chip variants, the unsuffixed recipe runs `_s3` and then `_s31`.
+`build_host` and `test` run on your computer with the standard Rust toolchain.
 
 ### Run the quality gate
 
 `just check` is the local quality gate. It checks formatting and runs Clippy and
-rustdoc with warnings denied for each chip. It runs the library tests once on
-the host with `just test` and checks the workspace dependency policy once with
-`just deny`.
+rustdoc with warnings denied for each chip. It builds the library for your
+computer with `just build_host`, runs the library tests once on it with
+`just test`, and checks the workspace dependency policy once with `just deny`.
 
 ### Enable the Git hooks
 
@@ -255,7 +284,8 @@ GitHub Actions provides:
 
 - A build and Clippy check for each chip.
 - Formatting, documentation, and dependency-policy checks.
-- Library tests on the host.
+- A library build and the library tests on a regular computer (Linux), with
+  the standard Rust toolchain.
 - TruffleHog secret scanning.
 - zizmor workflow-security auditing.
 
