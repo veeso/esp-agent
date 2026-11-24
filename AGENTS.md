@@ -42,6 +42,8 @@ keep building for the host target as well as for both chips.
 - Add or update focused tests before changing behavior.
 - Update user documentation when commands, public APIs, configuration, or
   workflows change.
+- Always update the mdBook website in `docs/` when adding a new feature or
+  changing the public API, in the same change that introduces it.
 - Use `git`; never use `jj` or git worktrees.
 - Never open a GitHub issue without prior user approval.
 - Do not stage or commit local plans. Planning state belongs under the ignored
@@ -193,7 +195,10 @@ passed or silently replace the repository command with a weaker check.
 
 ## Documentation
 
-- Update the pages in `docs/src/` when public APIs or firmware examples change.
+- Update the pages in `docs/src/` whenever you add a new feature or change the
+  public API or the firmware examples. Add a new page, and list it in
+  `docs/src/SUMMARY.md`, when a feature has no page yet.
+- Run `just book` after editing `docs/` to confirm the website still builds.
 - Write task-oriented documentation with runnable examples.
 - Use ATX headings and fenced code blocks with language identifiers.
 - Keep Markdown lines readable, tables aligned, and files terminated by one

@@ -24,14 +24,6 @@ queries. Calls that fit those buffers need no new allocation for scratch data.
 Read the [documentation website](https://veeso.github.io/esp-agent/) for guides
 to choosing a model, searching stored texts, and handling conversation turns.
 
-## Roadmap
-
-- [x] On-device text embeddings and semantic search with potion-2M.
-- [ ] Embeddable prompts compiled into the firmware image.
-- [ ] Embeddable skills the agent can select and run.
-- [ ] Embeddable context the agent can retrieve with the embedder.
-- [ ] A local agent loop that ties prompts, skills, and context together.
-
 ## Use it as a library
 
 The crate is not published on crates.io yet. Add it to your firmware project as
