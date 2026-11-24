@@ -97,8 +97,8 @@ recipe with an ad hoc `cargo` or tool command. If a recurring task has no
 recipe, add a focused recipe before using it.
 
 Run `just` to list every command. Recipes with the suffix `_s3` or `_s31` run
-for one chip. A recipe without a suffix runs the `_s3` recipe and then the
-`_s31` one. The primary recipes are:
+for one chip. For recipes with both chip variants, the unsuffixed recipe runs
+`_s3` and then `_s31`. The primary recipes are:
 
 ```sh
 just build
@@ -112,16 +112,17 @@ just fmt
 just fmt_check
 just clippy "-- -D warnings"
 just doc
+just test
 just deny
 just scan_secrets
 just check
 just setup_githooks
 ```
 
-`just check` is the required local quality gate. It runs formatting checks,
-Clippy with warnings denied, rustdoc with warnings denied, and cargo-deny, for
-both chips. There are no host tests, because the crate builds only for the
-device targets.
+`just check` is the required local quality gate. It checks formatting, then runs
+Clippy and rustdoc with warnings denied for each chip. It runs the host library
+tests once with `just test` and checks the workspace dependency policy once
+with `just deny`.
 
 When invoking compilation commands from the CLI, never request parallelism
 greater than eight. This is an invocation constraint; do not encode the local

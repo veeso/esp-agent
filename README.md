@@ -180,6 +180,7 @@ just fmt
 just fmt_check
 just clippy "-- -D warnings"
 just doc
+just test
 just deny
 just scan_secrets
 just check
@@ -188,14 +189,14 @@ just changelog_preview 0.1.0
 just changelog 0.1.0
 ```
 
-A recipe without a chip suffix runs the `_s3` recipe and then the `_s31` one.
+For recipes with both chip variants, the unsuffixed recipe runs `_s3` and then `_s31`.
 
 ### Run the quality gate
 
-`just check` is the local quality gate. It verifies formatting, runs Clippy
-with warnings denied, builds documentation with warnings denied, and checks the
-dependency policy, for both chips. The crate builds only for the device
-targets, so there are no host tests.
+`just check` is the local quality gate. It checks formatting and runs Clippy and
+rustdoc with warnings denied for each chip. It runs the library tests once on
+the host with `just test` and checks the workspace dependency policy once with
+`just deny`.
 
 ### Enable the Git hooks
 
@@ -225,6 +226,7 @@ GitHub Actions provides:
 
 - A build and Clippy check for each chip.
 - Formatting, documentation, and dependency-policy checks.
+- Library tests on the host.
 - TruffleHog secret scanning.
 - zizmor workflow-security auditing.
 

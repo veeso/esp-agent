@@ -1,3 +1,5 @@
+//! Compiles the model assets in `model/` into the files the library embeds.
+
 fn main() {
     generate_model_assets();
 }
@@ -18,8 +20,11 @@ fn generate_model_assets() {
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     let tokenizer_path = manifest.join("model/tokenizer.json");
     let model_path = manifest.join("model/model.safetensors");
-    println!("cargo:rerun-if-changed={}", tokenizer_path.display());
-    println!("cargo:rerun-if-changed={}", model_path.display());
+    println!(
+        "cargo:rerun-if-changed={path}",
+        path = tokenizer_path.display()
+    );
+    println!("cargo:rerun-if-changed={path}", path = model_path.display());
     println!("cargo:rerun-if-changed=build.rs");
 
     // --- tokenizer ---------------------------------------------------------------
