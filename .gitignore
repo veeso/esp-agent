@@ -29,3 +29,6 @@ target/
 /docs/superpowers/
 /.superpowers/
 /.claude/plans/
+
+# Downloaded example model
+/examples/semantic-search/model/

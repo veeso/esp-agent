@@ -1,6 +1,24 @@
 fn main() {
+    require_model();
     linker_be_nice();
     configure_linker();
+}
+
+/// Stops the build with instructions when the downloaded model files are missing.
+fn require_model() {
+    let manifest_dir = std::path::PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"),
+    );
+    for file in ["model.safetensors", "tokenizer.json"] {
+        let path = manifest_dir.join("model").join(file);
+        println!("cargo:rerun-if-changed={path}", path = path.display());
+        assert!(
+            path.exists(),
+            "The example model is missing: {path} does not exist.\n\n\
+             Download it from the repository root with:\n\n    just download_test_model\n",
+            path = path.display()
+        );
+    }
 }
 
 #[cfg(unix)]
