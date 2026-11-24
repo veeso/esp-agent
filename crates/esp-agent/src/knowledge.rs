@@ -71,7 +71,6 @@ impl<T> Knowledge<T> {
     }
 
     /// Returns the search over the stored texts.
-    #[expect(dead_code, reason = "the agent is the first caller")]
     pub(crate) const fn retriever(&self) -> &Retriever<T> {
         &self.retriever
     }

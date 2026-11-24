@@ -38,10 +38,6 @@ impl Vocab {
     }
 
     /// Returns the blob this vocabulary reads in place.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "`Model::same_as` is the first caller")
-    )]
     pub const fn blob(&self) -> &'static [u8] {
         self.blob
     }

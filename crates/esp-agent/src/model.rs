@@ -71,7 +71,6 @@ impl Model {
     /// Two models are the same when their table and vocabulary point at the same bytes
     /// and their shapes are equal. Models compiled by separate [`model!`](crate::model!)
     /// calls differ even when they read the same folder.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the agent is the first caller"))]
     pub(crate) fn same_as(&self, other: &Self) -> bool {
         core::ptr::eq(self.table, other.table)
             && core::ptr::eq(self.vocab.blob(), other.vocab.blob())
