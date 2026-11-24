@@ -38,10 +38,10 @@ doc_s31 args="":
 [group('code-check')]
 doc args="": (doc_s3 args) (doc_s31 args)
 
-# Run the library tests on the host, rebuilding std for the host target.
+# Run the library tests on this computer with the standard Rust toolchain.
 [group('code-check')]
 test args="":
-  cargo test --locked --package esp-agent --package esp-agent-macros --target "$(rustc -vV | sed -n 's/^host: //p')" --config 'unstable.build-std=["std","test","panic_unwind"]' {{ args }}
+  {{ host_cargo }} test --locked {{ host_packages }} --target host-tuple {{ args }}
 
 # Check advisories, licenses, bans, and dependency sources.
 [group('code-check')]
@@ -65,5 +65,6 @@ check:
   just fmt_check
   just clippy "-- -D warnings"
   just doc
+  just build_host
   just test
   just deny

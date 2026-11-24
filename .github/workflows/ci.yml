@@ -102,29 +102,28 @@ jobs:
       - name: Build documentation
         run: just doc
 
-  test:
-    name: Tests
+  host:
+    name: Build and test (regular computer)
     runs-on: ubuntu-latest
+    env:
+      # Use the standard toolchain instead of the ESP toolchain in rust-toolchain.toml.
+      # Keep it equal to `host_toolchain` in just/build.just.
+      RUSTUP_TOOLCHAIN: "1.97"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: esp-rs/xtensa-toolchain@ec6d36527049a7f4fb2cb0c1a644668c1bb8a2a4 # v1.7.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          default: true
-          buildtargets: esp32s3
-          ldproxy: false
-          version: 1.97.0.0
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
       - name: Enable caching
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
         with:
           just-version: "1.59.0"
+      - name: Build
+        run: just build_host
       - name: Run tests
         run: just test
 

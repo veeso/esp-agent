@@ -25,6 +25,12 @@ The toolchain is the espup `esp` toolchain 1.97.0.0 with edition 2024. Keep
 `.github/workflows/ci.yml`, and `package.rust-version` in each crate and example
 manifest synchronized.
 
+The library also builds and tests on regular computers with the standard Rust
+toolchain 1.97, through `just build_host` and `just test`. Keep `host_toolchain`
+in `just/build.just` and `RUSTUP_TOOLCHAIN` of the `host` job in
+`.github/workflows/ci.yml` equal to `package.rust-version`. Library code must
+keep building for the host target as well as for both chips.
+
 ## Working rules
 
 - Read the relevant source, documentation, configuration, and tests before
@@ -111,6 +117,7 @@ for one chip. For recipes with both chip variants, the unsuffixed recipe runs
 just build
 just build_s3
 just build_s31
+just build_host
 just run_s3
 just run_s31
 just monitor
@@ -127,9 +134,9 @@ just setup_githooks
 ```
 
 `just check` is the required local quality gate. It checks formatting, then runs
-Clippy and rustdoc with warnings denied for each chip. It runs the host library
-tests once with `just test` and checks the workspace dependency policy once
-with `just deny`.
+Clippy and rustdoc with warnings denied for each chip. It builds the library for
+the host with `just build_host`, runs the host library tests once with
+`just test`, and checks the workspace dependency policy once with `just deny`.
 
 When invoking compilation commands from the CLI, never request parallelism
 greater than eight. This is an invocation constraint; do not encode the local
@@ -140,6 +147,7 @@ cap in tracked project files.
 The local recipes expect:
 
 - espup with the `esp` toolchain 1.97.0.0, and rustup.
+- The standard Rust toolchain 1.97 (`rustup toolchain install 1.97`).
 - espflash 4.6.0 or newer.
 - just.
 - dprint 0.56.1 and nightly rustfmt.
