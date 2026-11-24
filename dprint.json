@@ -25,7 +25,7 @@
     "docs/superpowers",
     "Cargo.lock",
     "coverage",
-    "ld",
+    "examples/semantic-search/ld",
     "model",
     "lcov.info"
   ],

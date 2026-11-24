@@ -1,0 +1,156 @@
+fn main() {
+    linker_be_nice();
+    configure_linker();
+}
+
+#[cfg(unix)]
+fn check_xtensa_linker_available(target: &str) {
+    println!("cargo:rerun-if-env-changed=PATH");
+
+    println!(
+        "cargo:rerun-if-env-changed={}",
+        cargo_linker_env_var(target)
+    );
+
+    let linker = xtensa_linker(target);
+
+    let error = match std::process::Command::new(&linker)
+        .arg("--version")
+        .output()
+    {
+        Ok(_) => return,
+        Err(error) => error,
+    };
+
+    let export_file = std::env::var("HOME")
+        .map(|home| format!("{home}/export-esp.sh"))
+        .unwrap_or_else(|_| "$HOME/export-esp.sh".to_string());
+
+    panic!(
+        "Xtensa linker `{linker}` was not found in PATH or could not be executed: {error}.\n\n\
+         Xtensa targets on Unix require espup's environment export file to be sourced before building.\n\
+         Try: `source {export_file}`\n\n\
+         If the export file does not exist, run `espup install` first.\n\
+         For more details, see:\n\
+         https://github.com/esp-rs/espup?tab=readme-ov-file#environment-variables-setup"
+    );
+}
+
+#[cfg(not(unix))]
+fn check_xtensa_linker_available(_: &str) {}
+
+#[cfg(unix)]
+fn xtensa_linker(target: &str) -> String {
+    if let Some(linker) = cargo_configured_linker(target) {
+        return linker;
+    }
+
+    target
+        .strip_prefix("xtensa-")
+        .and_then(|target| target.strip_suffix("-none-elf"))
+        .map(|chip| format!("xtensa-{chip}-elf-gcc"))
+        .unwrap_or_else(|| "xtensa-esp32-elf-gcc".to_string())
+}
+
+#[cfg(unix)]
+fn cargo_configured_linker(target: &str) -> Option<String> {
+    std::env::var(cargo_linker_env_var(target)).ok()
+}
+
+#[cfg(unix)]
+fn cargo_linker_env_var(target: &str) -> String {
+    let target = target.replace('-', "_").to_ascii_uppercase();
+    format!("CARGO_TARGET_{target}_LINKER")
+}
+
+fn linker_be_nice() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        let kind = &args[1];
+        let what = &args[2];
+
+        match kind.as_str() {
+            "undefined-symbol" => match what.as_str() {
+                what if what.starts_with("_defmt_") => {
+                    eprintln!();
+                    eprintln!(
+                        "💡 `defmt` not found - make sure `defmt.x` is added as a linker script and you have included `use defmt_rtt as _;`"
+                    );
+                    eprintln!();
+                }
+                "_stack_start" => {
+                    eprintln!();
+                    eprintln!("💡 Is the linker script `linkall.x` missing?");
+                    eprintln!();
+                }
+                what if what.starts_with("esp_rtos_") => {
+                    eprintln!();
+                    eprintln!(
+                        "💡 `esp-radio` has no scheduler enabled. Make sure you have initialized `esp-rtos` or provided an external scheduler."
+                    );
+                    eprintln!();
+                }
+                "embedded_test_linker_file_not_added_to_rustflags" => {
+                    eprintln!();
+                    eprintln!(
+                        "💡 `embedded-test` not found - make sure `embedded-test.x` is added as a linker script for tests"
+                    );
+                    eprintln!();
+                }
+                "free"
+                | "malloc"
+                | "calloc"
+                | "get_free_internal_heap_size"
+                | "malloc_internal"
+                | "realloc_internal"
+                | "calloc_internal"
+                | "free_internal" => {
+                    eprintln!();
+                    eprintln!(
+                        "💡 Did you forget the `esp-alloc` dependency or didn't enable the `compat` feature on it?"
+                    );
+                    eprintln!();
+                }
+                _ => (),
+            },
+            // we don't have anything helpful for "missing-lib" yet
+            _ => {
+                std::process::exit(1);
+            }
+        }
+
+        std::process::exit(0);
+    }
+}
+
+fn configure_linker() {
+    let target = std::env::var("TARGET").expect("Cargo sets TARGET for build scripts");
+    let error_handling_script = std::env::current_exe().unwrap();
+
+    if target.starts_with("xtensa-") {
+        check_xtensa_linker_available(&target);
+        println!(
+            "cargo:rustc-link-arg=-Wl,--error-handling-script={}",
+            error_handling_script.display()
+        );
+        println!("cargo:rustc-link-arg=-Tlinkall.x");
+    } else if target == "riscv32imafc-unknown-none-elf" {
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"),
+        );
+        let linker_dir = manifest_dir.join("ld/esp32s31");
+        let linker_script = linker_dir.join("linkall.x");
+
+        println!("cargo:rerun-if-changed={}", linker_script.display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            linker_dir.join("memory-esp32s31.x").display()
+        );
+        println!("cargo:rustc-link-search={}", linker_dir.display());
+        println!(
+            "cargo:rustc-link-arg=--error-handling-script={}",
+            error_handling_script.display()
+        );
+        println!("cargo:rustc-link-arg=-T{}", linker_script.display());
+    }
+}

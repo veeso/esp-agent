@@ -617,14 +617,7 @@ dependencies = [
 name = "esp-local-agent"
 version = "0.1.0"
 dependencies = [
- "critical-section",
- "esp-alloc",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-println",
  "libm",
- "log",
  "serde_json",
  "unicode-normalization",
  "unicode-properties",
@@ -1237,6 +1230,20 @@ dependencies = [
  "block-device-driver",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
+]
+
+[[package]]
+name = "semantic-search"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "esp-alloc",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-local-agent",
+ "esp-println",
+ "log",
 ]
 
 [[package]]

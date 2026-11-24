@@ -5,14 +5,16 @@
 [![zizmor](https://github.com/veeso/esp-local-agent/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/esp-local-agent/actions/workflows/zizmor.yml)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
 
-A bare-metal (`no_std`, Rust) local agent runner for ESP32-S3 and ESP32-S31.
+A bare-metal (`no_std`, Rust) local agent library for ESP32-S3 and ESP32-S31.
 
 The goal of `esp-local-agent` is to run a small agent entirely on the chip, with
 prompts, skills, and context embedded in the firmware image and nothing sent to
-the cloud. The project is at an early stage: today it ships the first building
-block, an on-device text embedder with a semantic search console.
+the cloud. It is a library that you add to your own ESP firmware project. The
+project is at an early stage: today it ships the first building block, an
+on-device text embedder, plus an example firmware with a semantic search
+console.
 
-The current firmware runs the [potion-2M](https://huggingface.co/minishlab)
+The library runs the [potion-2M](https://huggingface.co/minishlab)
 static embedding model. The model (7.2 MiB, F32, 29,528 tokens x 64 dims) and
 the tokenizer vocabulary are embedded in the firmware image and read in place
 from flash. Only small per-request scratch data uses the heap.
@@ -25,13 +27,45 @@ from flash. Only small per-request scratch data uses the heap.
 - [ ] Embeddable context the agent can retrieve with the embedder.
 - [ ] A local agent loop that ties prompts, skills, and context together.
 
+## Use it as a library
+
+The crate is not published on crates.io yet. Add it to your firmware project as
+a Git dependency:
+
+```toml
+[dependencies]
+esp-local-agent = { git = "https://github.com/veeso/esp-local-agent" }
+```
+
+Then embed text from your firmware:
+
+```rust
+let embedder = esp_local_agent::embedder();
+let vector = embedder.embed("Qdrant is a vector search engine written in Rust.");
+```
+
+The embedder is cheap to create because nothing is copied. Texts are truncated
+at 512 tokens.
+
+The library does not depend on a HAL and does not configure the linker, so your
+project keeps full control of the chip setup. Your firmware must:
+
+- provide a global allocator, for example with `esp-alloc`;
+- have an application partition large enough for the 7.2 MiB model, which in
+  practice means a chip with 16 MiB of flash.
+
+See [`examples/semantic-search`](examples/semantic-search) for a complete
+firmware that uses the library.
+
 ## How it works
 
 - `build.rs` compiles `model/tokenizer.json` into a sorted binary vocabulary and reads the shape of `model/model.safetensors`. It fails the build if the model is not F32 or the sizes don't match.
 - `src/tokenizer.rs` is a `no_std` BERT WordPiece tokenizer: normalize (clean text, CJK spacing, accent stripping, lowercase), split on whitespace and punctuation, then greedy longest-match WordPiece.
 - `src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`).
-- `src/bin/main.rs` embeds sample sentences and runs an interactive serial
-  search console that prints timings and ranked matches.
+- `src/console.rs` is a sans-IO line editor for serial consoles.
+- `examples/semantic-search` is an example firmware. It embeds sample sentences
+  and runs an interactive serial search console that prints timings and ranked
+  matches.
 
 The tokenizer and pooling match the [`statembed`](https://github.com/AstraBert/statembed) crate exactly on a set of tricky inputs (accents, CJK, emoji, control characters, truncation).
 
@@ -65,8 +99,9 @@ brew install cargo-deny dprint git-cliff just shellcheck trufflehog zizmor
 rustup toolchain install nightly --profile minimal --component rustfmt
 ```
 
-## Run
+## Run the example
 
+The build and run recipes target the `semantic-search` example firmware.
 Select exactly one chip per build. Every command goes through a `just` recipe:
 recipes with the suffix `_s3` or `_s31` run for one chip.
 
@@ -192,15 +227,6 @@ GitHub Actions provides:
 - Formatting, documentation, and dependency-policy checks.
 - TruffleHog secret scanning.
 - zizmor workflow-security auditing.
-
-## Use it in your code
-
-```rust
-let embedder = esp_local_agent::embedder();
-let vector = embedder.embed("Qdrant is a vector search engine written in Rust.");
-```
-
-The embedder is cheap to create because nothing is copied. Texts are truncated at 512 tokens.
 
 ## Credits
 
