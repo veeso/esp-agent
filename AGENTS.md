@@ -60,7 +60,8 @@ keep building for the host target as well as for both chips.
 - `crates/esp-agent/tests/fixtures/` holds the tiny model folders the integration tests embed.
 - `examples/semantic-search/` is the example firmware crate:
   `src/main.rs` is its entry point, `src/console.rs` is the sans-IO serial
-  console, `model/` holds the potion-2M model assets, `build.rs` configures the
+  console, `model/` holds the potion-2M model downloaded by
+  `just download_test_model` (it is not tracked), `build.rs` configures the
   linker, and `ld/esp32s31/` holds the ESP32-S31 linker scripts.
 - Use `module_name.rs`; never introduce `mod.rs`.
 
@@ -120,6 +121,7 @@ just build
 just build_s3
 just build_s31
 just build_host
+just download_test_model
 just run_s3
 just run_s31
 just monitor

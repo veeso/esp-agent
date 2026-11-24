@@ -115,7 +115,8 @@ firmware that uses the library.
 - `crates/esp-agent/src/index.rs` is `Index`, a brute-force in-memory vector index: one contiguous buffer of floats plus a payload per entry, searched by cosine similarity.
 - `crates/esp-agent/src/retriever.rs` is `Retriever`, which pairs an `Embedder` with an `Index` so callers store and search text.
 - `examples/semantic-search` is an example firmware. It embeds the potion-2M
-  model from `examples/semantic-search/model/`, indexes sample sentences with a
+  model from `examples/semantic-search/model/` (downloaded, not tracked by
+  git), indexes sample sentences with a
   `Retriever`, and runs an interactive serial search console that prints the
   search time and ranked matches. The sans-IO line editor for the console lives in its
   `src/console.rs`.
@@ -147,6 +148,9 @@ Both recipes call `cargo +1.97 ... --target host-tuple`, which bypasses the ESP
 toolchain pinned in `rust-toolchain.toml` and the ESP32-S3 default target in
 `.cargo/config.toml`.
 
+`just test` downloads the potion-2M model on first use, because the potion
+tests embed it, and later runs reuse the downloaded files.
+
 ## Requirements
 
 - An ESP32-S3 or ESP32-S31-Korvo-1 with 16 MiB of flash.
@@ -169,8 +173,10 @@ toolchain pinned in `rust-toolchain.toml` and the ESP32-S3 default target in
   scanning.
 - [git-cliff](https://git-cliff.org) for changelog generation.
 - [zizmor](https://docs.zizmor.sh) for GitHub Actions auditing.
-- The model files in `examples/semantic-search/model/`: `model.safetensors` and
-  `tokenizer.json`.
+- `curl` and `shasum`, which `just download_test_model` uses to download the
+  potion-2M model into `examples/semantic-search/model/`. The build, run,
+  Clippy, and test recipes run it for you, so you only run it by hand to
+  prefetch the model.
 - On ESP32-S31-Korvo-1, use the UART USB-C connector for flashing and the
   serial monitor.
 
@@ -255,6 +261,7 @@ just build
 just build_s3
 just build_s31
 just build_host
+just download_test_model
 just run_s3
 just run_s31
 just monitor

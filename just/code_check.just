@@ -12,12 +12,12 @@ fmt_check args="":
 
 # Run Clippy for the ESP32-S3.
 [group('code-check')]
-clippy_s3 args="":
+clippy_s3 args="": download_test_model
   cargo clippy --locked --workspace {{ args }}
 
 # Run Clippy for the ESP32-S31.
 [group('code-check')]
-clippy_s31 args="":
+clippy_s31 args="": download_test_model
   cargo clippy --locked --workspace {{ s31_flags }} {{ args }}
 
 # Run Clippy for both chips.
@@ -40,7 +40,7 @@ doc args="": (doc_s3 args) (doc_s31 args)
 
 # Run the library tests on this computer with the standard Rust toolchain.
 [group('code-check')]
-test args="":
+test args="": download_test_model
   {{ host_cargo }} test --locked {{ host_packages }} --target host-tuple {{ args }}
 
 # Check advisories, licenses, bans, and dependency sources.
