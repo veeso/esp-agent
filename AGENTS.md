@@ -222,6 +222,9 @@ passed or silently replace the repository command with a weaker check.
 
 ## Git and releases
 
+- Name issue branches `{conventional-commit-action}/{issue_number}-{slugified-issue-title}`.
+  Use the Conventional Commit type for the work, the issue number without
+  `#`, and a lowercase, hyphen-separated title, as in `feat/26-declarative-turns`.
 - Use Conventional Commits with an imperative, lower-case description.
 - Do not add agent attribution, session links, or agent `Co-Authored-By` lines.
 - Inspect the diff before staging or committing changes.
