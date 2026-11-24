@@ -55,9 +55,11 @@ fn main() -> ! {
         kib = POTION.vocab_size() * POTION.dim() * size_of::<f32>() / 1024
     );
 
+    // ANCHOR: search_setup
     let mut knowledge = Knowledge::with_capacity(embedder, CORPUS.len());
     knowledge.extend(CORPUS.map(|text| (text, ())));
     let agent = Agent::new(POTION, &knowledge).expect("the corpus is embedded with POTION");
+    // ANCHOR_END: search_setup
     info!("indexed {count} sentences", count = CORPUS.len());
 
     println!();
@@ -83,6 +85,7 @@ fn main() -> ! {
     }
 }
 
+// ANCHOR: search_answer
 /// Prompts `agent` with `query` and prints the [`TOP_K`] closest indexed sentences.
 fn answer<'a>(
     agent: &Agent<'a, ()>,
@@ -98,3 +101,4 @@ fn answer<'a>(
     results::render_hits(hits, &CORPUS, |line| println!("{line}"));
     println!();
 }
+// ANCHOR_END: search_answer

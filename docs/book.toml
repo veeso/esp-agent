@@ -1,0 +1,22 @@
+[book]
+title = "esp-agent"
+description = "A bare-metal (no_std, Rust) local agent library for ESP32-S3 and ESP32-S31."
+authors = ["Christian Visintin"]
+language = "en"
+src = "src"
+
+[build]
+create-missing = false
+
+[rust]
+edition = "2024"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/veeso/esp-agent"
+edit-url-template = "https://github.com/veeso/esp-agent/edit/main/docs/{path}"
+site-url = "/esp-agent/"
+
+[output.html.playground]
+runnable = false
