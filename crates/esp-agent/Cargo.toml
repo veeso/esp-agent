@@ -2,13 +2,20 @@
 name = "esp-agent"
 version = "0.1.0"
 autoexamples = false
+categories = [
+  "artificial-intelligence",
+  "embedded",
+  "no-std",
+  "text-processing",
+]
 edition = "2024"
 exclude = ["/tests/home_assistant.rs", "/tests/potion.rs"]
+keywords = ["agent", "bare-metal", "embeddings", "esp32", "semantic-search"]
 license = "Apache-2.0"
 readme = "../../README.md"
 repository = "https://github.com/veeso/esp-agent"
 rust-version = "1.97"
-description = "Bare-metal local agent library for ESP32-S3 and ESP32-S31"
+description = "Bare-metal no_std local agent for ESP32-S3 and ESP32-S31: on-device semantic search and command recognition with static embedding models"
 
 [dependencies]
 esp-agent-macros = { workspace = true }
