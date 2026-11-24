@@ -17,16 +17,23 @@ use esp_hal::time::Instant;
 use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
 use esp_hal::{Blocking, main};
-use esp_local_agent::console::{Event, LineEditor};
-use esp_local_agent::{DIM, StaticEmbedder, VOCAB_SIZE, cosine_similarity};
+use esp_local_agent::{Embedder, Model, cosine_similarity};
 use esp_println::{Printer, print, println};
 use log::info;
 
+use crate::console::{Event, LineEditor};
+
 extern crate alloc;
+
+mod console;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
+
+/// The potion-2M static embedding model, embedded in the firmware image and read in place
+/// from flash. The path is relative to this crate.
+static POTION: Model = esp_local_agent::model!("model");
 
 const PROMPT: &str = "> ";
 
@@ -107,12 +114,13 @@ fn main() -> ! {
         delay: Delay::new(),
     };
 
-    // The model and the vocabulary are embedded in the firmware image and read in place
-    // from flash: building the embedder copies nothing.
-    let embedder = esp_local_agent::embedder();
+    // Building the embedder copies nothing: the model stays in flash.
+    let embedder = Embedder::new(POTION);
     info!(
-        "potion ready: {VOCAB_SIZE} tokens x {DIM} dims, table {table_kib} KiB in flash",
-        table_kib = esp_local_agent::embedding_table().len() / 1024
+        "potion ready: {vocab_size} tokens x {dim} dims, table {kib} KiB in flash",
+        vocab_size = POTION.vocab_size(),
+        dim = POTION.dim(),
+        kib = POTION.vocab_size() * POTION.dim() * size_of::<f32>() / 1024
     );
 
     let corpus_vectors: Vec<Vec<f32>> = CORPUS.iter().map(|text| embedder.embed(text)).collect();
@@ -171,7 +179,7 @@ fn read_byte(input: &mut SerialInput<'_>) -> Option<u8> {
 }
 
 /// Embeds `query` and prints the [`TOP_K`] closest indexed sentences.
-fn answer(embedder: &StaticEmbedder, corpus_vectors: &[Vec<f32>], query: &str) {
+fn answer(embedder: &Embedder, corpus_vectors: &[Vec<f32>], query: &str) {
     let start = Instant::now();
     let vector = embedder.embed(query);
     let embed_us = start.elapsed().as_micros();

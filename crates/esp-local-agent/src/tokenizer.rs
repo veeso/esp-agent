@@ -17,7 +17,7 @@ fn read_u32(blob: &[u8], at: usize) -> u32 {
 /// Layout (little-endian): `u32 count`, `count x u32` entry offsets ordered by token
 /// bytes, then entries made of `u32 id`, `u8 len`, token bytes.
 #[derive(Clone, Copy)]
-pub struct Vocab {
+pub(crate) struct Vocab {
     blob: &'static [u8],
 }
 
@@ -42,15 +42,6 @@ impl Vocab {
     /// Panics if the blob lacks the four-byte token count.
     pub fn len(&self) -> usize {
         read_u32(self.blob, 0) as usize
-    }
-
-    /// Returns `true` when the vocabulary holds no tokens.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the blob lacks the four-byte token count.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     fn entry(&self, index: usize) -> (&'static [u8], u32) {
@@ -82,9 +73,10 @@ impl Vocab {
     }
 }
 
-/// BERT-style WordPiece tokenizer over an in-flash [`Vocab`].
+/// BERT-style WordPiece tokenizer over a vocabulary that stays in flash.
 ///
-/// It reproduces the pipeline declared in `model/tokenizer.json`:
+/// It implements one fixed pipeline, the one potion-2M declares in its `tokenizer.json`. The
+/// pipeline of a model's `tokenizer.json` is not read, so a model must use the same one:
 ///
 /// 1. `BertNormalizer` (`clean_text`, `handle_chinese_chars`, accent stripping, lowercasing)
 /// 2. `BertPreTokenizer` (split on whitespace, isolate every punctuation character)
@@ -93,9 +85,9 @@ impl Vocab {
 ///
 /// No special tokens are added, which is what static (Model2Vec) embedding models expect.
 ///
-/// The vocabulary is **not** parsed or copied: `build.rs` compiles it into a sorted binary
-/// blob (see [`Vocab`]) that is binary-searched where it lives, in flash.
-#[derive(Debug)]
+/// The vocabulary is **not** parsed or copied: the [`model!`](crate::model!) macro compiles
+/// it into a sorted binary blob that is binary-searched where it lives, in flash.
+#[derive(Debug, Clone, Copy)]
 pub struct WordPieceTokenizer {
     vocab: Vocab,
     unk_id: u32,
@@ -110,7 +102,7 @@ impl WordPieceTokenizer {
     /// * `max_chars_per_word`: words longer than this (in chars) become `[UNK]`.
     /// * `max_length`: truncation, counted in tokens (including `[UNK]`s), like the
     ///   reference implementation which truncates before `[UNK]`s are removed.
-    pub const fn new(
+    pub(crate) const fn new(
         vocab: Vocab,
         unk_id: u32,
         max_chars_per_word: usize,
@@ -125,35 +117,44 @@ impl WordPieceTokenizer {
     }
 
     /// Returns the id of the `[UNK]` token.
-    pub fn unk_id(&self) -> u32 {
+    #[must_use]
+    pub const fn unk_id(&self) -> u32 {
         self.unk_id
+    }
+
+    /// Returns the truncation, in tokens, applied by [`encode`](Self::encode).
+    #[must_use]
+    pub const fn max_length(&self) -> usize {
+        self.max_length
     }
 
     /// Tokenizes `text` and returns its token ids, **without** the `[UNK]` ids
     /// (a static embedding model ignores them).
     pub fn encode(&self, text: &str) -> Vec<u32> {
-        let normalized = normalize(text);
-        let mut ids = Vec::new();
-        self.encode_normalized(&normalized, &mut ids, false);
-        ids
+        self.encode_text(text, false)
     }
 
     /// Like [`encode`](Self::encode), but keeps `[UNK]` ids in the output.
     pub fn encode_with_unk(&self, text: &str) -> Vec<u32> {
-        let normalized = normalize(text);
-        let mut ids = Vec::new();
-        self.encode_normalized(&normalized, &mut ids, true);
-        ids
+        self.encode_text(text, true)
     }
 
-    /// Splits already-normalized text into words and WordPieces each one.
+    /// Normalizes text, splits it into words, and tokenizes each word.
     ///
     /// Example: "hello, world" -> words "hello" "," "world" -> one `word_piece` call each.
-    fn encode_normalized(&self, text: &str, ids: &mut Vec<u32>, keep_unk: bool) {
+    fn encode_text(&self, text: &str, keep_unk: bool) -> Vec<u32> {
+        let mut ids = Vec::new();
+        let mut remaining = self.max_length;
+        if remaining == 0 {
+            return ids;
+        }
+        let text = normalize(text);
         // Reused buffer for building vocab lookup keys, so we don't allocate per lookup.
         let mut scratch = String::new();
-        // Tokens produced so far, [UNK] included. Used only to enforce `max_length`.
-        let mut emitted = 0usize;
+        let mut encode_word = |word: &str| {
+            remaining -= self.word_piece(word, &mut scratch, &mut ids, remaining, keep_unk);
+            remaining == 0
+        };
         // Byte index where the word currently being scanned began (None between words).
         let mut word_start: Option<usize> = None;
 
@@ -164,32 +165,25 @@ impl WordPieceTokenizer {
             let is_punct = !is_space && is_bert_punctuation(c);
             if is_space || is_punct {
                 // A separator ends the word we were scanning, if any.
-                if let Some(start) = word_start.take() {
-                    self.word_piece(&text[start..i], &mut scratch, ids, &mut emitted, keep_unk);
+                if let Some(start) = word_start.take()
+                    && encode_word(&text[start..i])
+                {
+                    return ids;
                 }
                 // Punctuation is not just a separator: it is also a one-char word itself.
-                if is_punct {
-                    self.word_piece(
-                        &text[i..i + c.len_utf8()],
-                        &mut scratch,
-                        ids,
-                        &mut emitted,
-                        keep_unk,
-                    );
+                if is_punct && encode_word(&text[i..i + c.len_utf8()]) {
+                    return ids;
                 }
             } else if word_start.is_none() {
                 // First ordinary char after a separator: a new word starts here.
                 word_start = Some(i);
             }
-            // Truncation reached: nothing more can be added.
-            if emitted >= self.max_length {
-                return;
-            }
         }
         // The text may end in the middle of a word (no trailing separator): flush it.
         if let Some(start) = word_start {
-            self.word_piece(&text[start..], &mut scratch, ids, &mut emitted, keep_unk);
+            encode_word(&text[start..]);
         }
+        ids
     }
 
     /// Greedy longest-match-first WordPiece over one pre-tokenized word.
@@ -200,32 +194,32 @@ impl WordPieceTokenizer {
     /// try "unaffable".."una" (miss) -> "un" (hit); then "##affable".."##af" (miss)
     /// -> "##aff" (hit); then "##able" (hit) => [un, ##aff, ##able].
     /// If at any point not even a single char matches, the *whole word* becomes [UNK].
+    /// Returns how many tokens count toward truncation, including filtered unknown IDs.
     fn word_piece(
         &self,
         word: &str,
         scratch: &mut String,
         ids: &mut Vec<u32>,
-        emitted: &mut usize,
+        remaining: usize,
         keep_unk: bool,
-    ) {
+    ) -> usize {
+        let mut consumed = 0;
         // Where this word's ids begin in `ids`, so we can roll them back on failure.
         let first_id = ids.len();
-        // Number of tokens this word yields (pieces, or 1 for [UNK]).
-        let mut produced = 0usize;
         // Too-long words are [UNK] without even trying.
         let mut ok = word.chars().count() <= self.max_chars_per_word;
 
         // `start..end` is the candidate piece (byte offsets into `word`).
         let mut start = 0;
         while ok && start < word.len() {
-            // Begin with the longest candidate (everything left) and shrink it.
-            let mut end = word.len();
+            // The blob encodes the complete vocabulary key length in one byte.
+            let prefix = if start == 0 { "" } else { CONTINUING_PREFIX };
+            let max_bytes = usize::from(u8::MAX) - prefix.len();
+            let mut end = word.floor_char_boundary(start.saturating_add(max_bytes));
             let mut found = None;
             while end > start {
                 scratch.clear();
-                if start > 0 {
-                    scratch.push_str(CONTINUING_PREFIX);
-                }
+                scratch.push_str(prefix);
                 scratch.push_str(&word[start..end]);
                 if let Some(id) = self.vocab.get(scratch) {
                     found = Some(id);
@@ -240,8 +234,12 @@ impl WordPieceTokenizer {
             match found {
                 // Piece matched: emit it and continue after it.
                 Some(id) => {
-                    ids.push(id);
-                    produced += 1;
+                    if consumed < remaining {
+                        consumed += 1;
+                        if keep_unk || id != self.unk_id {
+                            ids.push(id);
+                        }
+                    }
                     start = end;
                 }
                 // Nothing matched, not even one char: give up on the whole word.
@@ -252,23 +250,12 @@ impl WordPieceTokenizer {
         if !ok {
             // The whole word is unknown, not just the piece that failed.
             ids.truncate(first_id);
-            produced = 1;
             if keep_unk {
                 ids.push(self.unk_id);
             }
+            return 1;
         }
-
-        // Enforce `max_length` at the token level, even in the middle of a word.
-        // `emitted` counts [UNK]s too (even when `ids` omits them), matching the reference,
-        // which truncates before [UNK]s are removed.
-        let remaining = self.max_length - *emitted;
-        if produced > remaining {
-            let kept = if ok || keep_unk { remaining } else { 0 };
-            ids.truncate(first_id + kept.min(ids.len() - first_id));
-            *emitted = self.max_length;
-        } else {
-            *emitted += produced;
-        }
+        consumed
     }
 }
 
@@ -375,12 +362,11 @@ mod tests {
         assert_eq!(vocab.get("aff"), None);
         assert_eq!(vocab.get(""), None);
         assert_eq!(vocab.len(), 10);
-        assert!(!vocab.is_empty());
     }
 
     #[test]
     fn vocab_reports_empty() {
-        assert!(vocab(&[]).is_empty());
+        assert_eq!(vocab(&[]).len(), 0);
     }
 
     #[test]
@@ -395,6 +381,21 @@ mod tests {
         ]);
         let tokenizer = WordPieceTokenizer::new(vocab, 0, 100, 512);
         assert_eq!(tokenizer.encode("abcd"), [2, 5]);
+    }
+
+    #[test]
+    fn long_words_fit_the_lookup_buffer_and_validate_the_suffix() {
+        let piece = "α".repeat(126);
+        let continuation = alloc::format!("##{piece}");
+        let tokenizer =
+            WordPieceTokenizer::new(vocab(&[(&piece, 1), (&continuation, 2)]), 0, 2000, 1);
+        let word = piece.repeat(10);
+        let mut scratch = alloc::string::String::with_capacity(255);
+        let mut ids = alloc::vec::Vec::new();
+        tokenizer.word_piece(&word, &mut scratch, &mut ids, 1, true);
+        assert_eq!(ids, [1]);
+        assert_eq!(scratch.capacity(), 255);
+        assert_eq!(tokenizer.encode_with_unk(&alloc::format!("{word}x")), [0]);
     }
 
     #[test]
@@ -415,6 +416,22 @@ mod tests {
     }
 
     #[test]
+    fn directly_matched_unknown_ids_count_toward_truncation() {
+        let vocab = vocab(&[("unknown", 3), ("known", 0)]);
+        let tokenizer = WordPieceTokenizer::new(vocab, 3, 100, 2);
+        assert_eq!(tokenizer.encode("unknown known known"), [0]);
+        assert_eq!(tokenizer.encode_with_unk("unknown known known"), [3, 0]);
+    }
+
+    #[test]
+    fn filtered_unknown_ids_take_no_output_space() {
+        let vocab = vocab(&[("unknown", 3)]);
+        let tokenizer = WordPieceTokenizer::new(vocab, 3, 100, 4096);
+        let text = "missing unknown ".repeat(2048);
+        assert_eq!(tokenizer.encode(&text).capacity(), 0);
+    }
+
+    #[test]
     fn encode_with_unk_keeps_unknown_words() {
         let tokenizer =
             WordPieceTokenizer::new(vocab(&[("[UNK]", 42), ("hello", 4)]), 42, 100, 512);
@@ -424,7 +441,9 @@ mod tests {
 
     #[test]
     fn partial_match_makes_the_whole_word_unknown() {
-        assert_eq!(tokenizer(100, 512).encode_with_unk("unaffablex"), [0]);
+        let tokenizer = tokenizer(100, 2);
+        assert_eq!(tokenizer.encode("unaffablex hello"), [4]);
+        assert_eq!(tokenizer.encode_with_unk("unaffablex hello"), [0, 4]);
     }
 
     #[test]

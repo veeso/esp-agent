@@ -1,0 +1,30 @@
+[package]
+name = "esp-local-agent"
+version = "0.1.0"
+autoexamples = false
+edition = "2024"
+exclude = ["/tests/potion.rs"]
+license = "Apache-2.0"
+readme = "../../README.md"
+repository = "https://github.com/veeso/esp-local-agent"
+rust-version = "1.97"
+description = "Bare-metal local agent library for ESP32-S3 and ESP32-S31"
+
+[dependencies]
+esp-local-agent-macros = { workspace = true }
+# Text pipeline (no_std): sqrt for L2 normalisation, NFD + Unicode categories for the BERT normalizer.
+libm = { workspace = true }
+unicode-normalization = { workspace = true }
+unicode-properties = { workspace = true, features = ["general-category"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+
+[lints.clippy]
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+[lints.rust]
+missing_debug_implementations = "warn"
+missing_docs = "warn"

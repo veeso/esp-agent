@@ -1,0 +1,29 @@
+[package]
+name = "esp-local-agent-macros"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/veeso/esp-local-agent"
+rust-version = "1.97"
+description = "Compile-time model embedding for esp-local-agent"
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+syn = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lib]
+proc-macro = true
+
+[lints.clippy]
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+[lints.rust]
+missing_debug_implementations = "warn"
+missing_docs = "warn"

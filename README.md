@@ -14,10 +14,10 @@ project is at an early stage: today it ships the first building block, an
 on-device text embedder, plus an example firmware with a semantic search
 console.
 
-The library runs the [potion-2M](https://huggingface.co/minishlab)
-static embedding model. The model (7.2 MiB, F32, 29,528 tokens x 64 dims) and
-the tokenizer vocabulary are embedded in the firmware image and read in place
-from flash. Only small per-request scratch data uses the heap.
+Each firmware chooses which static embedding models to include. The semantic
+search example embeds [potion-2M](https://huggingface.co/minishlab) and reads
+its 7.2 MiB embedding table (F32, 29,528 tokens x 64 dims) and tokenizer
+vocabulary in place from flash. Only small per-request scratch data uses the heap.
 
 ## Roadmap
 
@@ -37,37 +37,65 @@ a Git dependency:
 esp-local-agent = { git = "https://github.com/veeso/esp-local-agent" }
 ```
 
+If your firmware uses a local checkout, append `crates/esp-local-agent` to
+the dependency path that previously pointed to the repository root. For a
+sibling checkout, use this entry in your firmware's `Cargo.toml`:
+
+```toml
+[dependencies]
+esp-local-agent = { path = "../esp-local-agent/crates/esp-local-agent" }
+```
+
 Then embed text from your firmware:
 
 ```rust
-let embedder = esp_local_agent::embedder();
+use esp_local_agent::{Embedder, Model, model};
+
+static POTION: Model = model!("model");
+
+let mut embedder = Embedder::new(POTION);
+embedder.config_mut().max_length = 128;
 let vector = embedder.embed("Qdrant is a vector search engine written in Rust.");
 ```
 
-The embedder is cheap to create because nothing is copied. Texts are truncated
-at 512 tokens.
+The library ships no model. `model!` embeds the folder you name, which holds
+`tokenizer.json` and `model.safetensors`, and a relative path is resolved
+against your firmware crate. The embedder is cheap to create because nothing is
+copied, and `config_mut` changes the settings (the truncation length and the
+normalization) while the firmware runs. A firmware can call `model!` several
+times to embed several models and build one `Embedder` for each.
+
+If your firmware uses `esp_local_agent::DEFAULT_MAX_LENGTH`, replace it with
+`esp_local_agent::EmbedderConfig::DEFAULT_MAX_LENGTH`.
 
 The library does not depend on a HAL and does not configure the linker, so your
 project keeps full control of the chip setup. Your firmware must:
 
 - provide a global allocator, for example with `esp-alloc`;
-- have an application partition large enough for the 7.2 MiB model, which in
-  practice means a chip with 16 MiB of flash.
+- have an application partition large enough for the models it embeds. The
+  7.2 MiB potion-2M model needs, in practice, a chip with 16 MiB of flash.
 
 See [`examples/semantic-search`](examples/semantic-search) for a complete
 firmware that uses the library.
 
 ## How it works
 
-- `build.rs` compiles `model/tokenizer.json` into a sorted binary vocabulary and reads the shape of `model/model.safetensors`. It fails the build if the model is not F32 or the sizes don't match.
-- `src/tokenizer.rs` is a `no_std` BERT WordPiece tokenizer: normalize (clean text, CJK spacing, accent stripping, lowercase), split on whitespace and punctuation, then greedy longest-match WordPiece.
-- `src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`).
-- `src/console.rs` is a sans-IO line editor for serial consoles.
-- `examples/semantic-search` is an example firmware. It embeds sample sentences
-  and runs an interactive serial search console that prints timings and ranked
-  matches.
+- `crates/esp-local-agent/src/lib.rs` defines the public `model!` macro. Its
+  `compile_model!` helper in `crates/esp-local-agent-macros/` turns
+  `tokenizer.json` into a sorted binary vocabulary and reads the shape of
+  `model.safetensors` while the firmware builds. It fails the build if the
+  table contains non-finite weights, has a dtype other than F32, or its size disagrees with its shape.
+- `crates/esp-local-agent/src/model.rs` is the `Model` value that `model!` produces.
+- `crates/esp-local-agent/src/tokenizer.rs` is a `no_std` BERT WordPiece tokenizer: normalize (clean text, CJK spacing, accent stripping, lowercase), split on whitespace and punctuation, then greedy longest-match WordPiece.
+- `crates/esp-local-agent/src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`). Its settings live in `EmbedderConfig`.
+- `examples/semantic-search` is an example firmware. It embeds the potion-2M
+  model from `examples/semantic-search/model/`, embeds sample sentences, and
+  runs an interactive serial search console that prints timings and ranked
+  matches. The sans-IO line editor for the console lives in its
+  `src/console.rs`.
 
-The tokenizer and pooling match the [`statembed`](https://github.com/AstraBert/statembed) crate exactly on a set of tricky inputs (accents, CJK, emoji, control characters, truncation).
+The tokenizer produces the same token IDs as [`statembed`](https://github.com/AstraBert/statembed) on inputs covering accents, CJK, emoji, control characters, and truncation.
+Pooled embeddings agree within floating-point rounding precision.
 
 ## Requirements
 
@@ -88,7 +116,8 @@ The tokenizer and pooling match the [`statembed`](https://github.com/AstraBert/s
   scanning.
 - [git-cliff](https://git-cliff.org) for changelog generation.
 - [zizmor](https://docs.zizmor.sh) for GitHub Actions auditing.
-- The model files in `model/`: `model.safetensors` and `tokenizer.json`.
+- The model files in `examples/semantic-search/model/`: `model.safetensors` and
+  `tokenizer.json`.
 - On ESP32-S31-Korvo-1, use the UART USB-C connector for flashing and the
   serial monitor.
 

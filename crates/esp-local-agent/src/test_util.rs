@@ -3,7 +3,9 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use crate::{Vocab, WordPieceTokenizer};
+use crate::_private::RawModel;
+use crate::model::Model;
+use crate::tokenizer::{Vocab, WordPieceTokenizer};
 
 /// Tiny vocabulary shared by the tokenizer and embedder tests.
 ///
@@ -21,8 +23,8 @@ pub(crate) const VOCAB: &[(&str, u32)] = &[
     ("文", 9),
 ];
 
-/// Encodes `entries` in the `vocab.bin` layout and leaks the buffer.
-pub(crate) fn vocab(entries: &[(&str, u32)]) -> Vocab {
+/// Encodes `entries` in the vocabulary blob layout and leaks the buffer.
+pub(crate) fn vocab_blob(entries: &[(&str, u32)]) -> &'static [u8] {
     let mut sorted = entries.to_vec();
     sorted.sort_by_key(|(token, _)| token.as_bytes());
 
@@ -46,7 +48,12 @@ pub(crate) fn vocab(entries: &[(&str, u32)]) -> Vocab {
         blob.extend_from_slice(&offset.to_le_bytes());
     }
     blob.extend_from_slice(&body);
-    Vocab::new(Box::leak(blob.into_boxed_slice()))
+    Box::leak(blob.into_boxed_slice())
+}
+
+/// A vocabulary over `entries`.
+pub(crate) fn vocab(entries: &[(&str, u32)]) -> Vocab {
+    Vocab::new(vocab_blob(entries))
 }
 
 /// A tokenizer over [`VOCAB`] whose unknown id is 0.
@@ -62,4 +69,19 @@ pub(crate) fn table(rows: &[&[f32]]) -> &'static [u8] {
         .flat_map(|value| value.to_le_bytes())
         .collect();
     Box::leak(bytes.into_boxed_slice())
+}
+
+/// A model over [`VOCAB`] whose table is `rows` and whose unknown id is 0.
+pub(crate) fn model(rows: &[&[f32]]) -> Model {
+    let table = table(rows);
+    crate::_private::model(RawModel {
+        file: table,
+        tensor_start: 0,
+        tensor_end: table.len(),
+        vocab: vocab_blob(VOCAB),
+        vocab_size: rows.len(),
+        dim: rows.first().map_or(0, |row| row.len()),
+        unk_id: 0,
+        max_chars_per_word: 100,
+    })
 }

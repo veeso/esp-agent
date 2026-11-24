@@ -4,7 +4,6 @@
 //! holds the line being typed. It performs no I/O: the caller feeds it bytes and acts on
 //! the returned [`Event`].
 
-use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -79,11 +78,6 @@ impl LineEditor {
         let line = String::from_utf8_lossy(&self.buf).into_owned();
         self.buf.clear();
         line
-    }
-
-    /// Returns the line typed so far without consuming it.
-    pub fn line(&self) -> Cow<'_, str> {
-        String::from_utf8_lossy(&self.buf)
     }
 
     fn erase_last_char(&mut self) -> Event {
