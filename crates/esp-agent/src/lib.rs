@@ -94,6 +94,7 @@ extern crate alloc;
 
 mod embedder;
 mod index;
+mod knowledge;
 mod model;
 mod retriever;
 mod scratch;
@@ -103,6 +104,8 @@ mod tokenizer;
 pub use embedder::{Embedder, EmbedderConfig, cosine_similarity};
 #[doc(inline)]
 pub use index::{Hit, Index};
+#[doc(inline)]
+pub use knowledge::Knowledge;
 #[doc(inline)]
 pub use model::Model;
 #[doc(inline)]

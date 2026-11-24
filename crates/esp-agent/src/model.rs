@@ -66,6 +66,19 @@ impl Model {
         }
     }
 
+    /// Returns `true` when `other` is the same embedded model as `self`.
+    ///
+    /// Two models are the same when their table and vocabulary point at the same bytes
+    /// and their shapes are equal. Models compiled by separate [`model!`](crate::model!)
+    /// calls differ even when they read the same folder.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the agent is the first caller"))]
+    pub(crate) fn same_as(&self, other: &Self) -> bool {
+        core::ptr::eq(self.table, other.table)
+            && core::ptr::eq(self.vocab.blob(), other.vocab.blob())
+            && self.vocab_size == other.vocab_size
+            && self.dim == other.dim
+    }
+
     /// Returns the little-endian `f32` table, a `[vocab_size, dim]` row-major matrix.
     pub(crate) const fn table(&self) -> &'static [u8] {
         self.table
@@ -80,6 +93,25 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use crate::_private::{RawModel, model};
+    use crate::test_util;
+
+    const ROWS: &[&[f32]] = &[&[1.0, 0.0], &[0.0, 1.0]];
+
+    #[test]
+    fn same_as_is_true_for_the_same_model() {
+        let first = test_util::model(ROWS);
+        let copy = first;
+
+        assert!(first.same_as(&copy));
+    }
+
+    #[test]
+    fn same_as_is_false_for_models_over_different_data() {
+        let first = test_util::model(ROWS);
+        let second = test_util::model(ROWS);
+
+        assert!(!first.same_as(&second));
+    }
 
     #[test]
     #[should_panic(expected = "model table size does not match its shape")]
