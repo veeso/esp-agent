@@ -4,7 +4,10 @@ Guidance for coding agents working in this repository.
 
 ## Project context
 
-This repository is a `#![no_std]` / `#![no_main]` firmware that runs the
+This repository is `esp-local-agent`, a `#![no_std]` / `#![no_main]` firmware
+that aims to run a local agent on ESP32 chips, with embeddable prompts, skills,
+and context. It started as a fork of `qdrant-labs/static-models-bm`; keep the
+credit to that project and its author in `README.md`. Today it runs the
 potion-2M static embedding model on the ESP32-S3 (default, Xtensa) and the
 ESP32-S31 (RISC-V, `riscv32imafc-unknown-none-elf`). It is one Cargo package
 with a library (`src/lib.rs`) and a binary (`src/bin/main.rs`). It was
@@ -96,6 +99,7 @@ just build_s31
 just run_s3
 just run_s31
 just monitor
+just lock
 just fmt
 just fmt_check
 just clippy "-- -D warnings"

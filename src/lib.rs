@@ -1,4 +1,8 @@
-//! Bare-metal runner for the `potion-2M` static embedding model.
+//! Bare-metal building blocks for a local agent on ESP32 chips.
+//!
+//! The crate currently runs the `potion-2M` static embedding model on device. It is
+//! based on [`static-models-bm`](https://github.com/qdrant-labs/static-models-bm) by
+//! [AstraBert](https://github.com/AstraBert).
 //!
 //! Everything the model needs is embedded in the firmware image:
 //!

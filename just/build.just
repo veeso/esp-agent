@@ -35,3 +35,8 @@ monitor args="":
 [confirm("Are you sure you want to clean the build artifacts?")]
 clean:
   cargo clean
+
+# Refresh the workspace entries in Cargo.lock without upgrading dependencies.
+[group('build')]
+lock:
+  cargo update --workspace

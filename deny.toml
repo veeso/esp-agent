@@ -1,4 +1,4 @@
-# cargo-deny policy for static-models-bm.
+# cargo-deny policy for esp-local-agent.
 
 [graph]
 all-features = true

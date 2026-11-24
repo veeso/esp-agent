@@ -17,10 +17,10 @@ use esp_hal::time::Instant;
 use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
 use esp_hal::{Blocking, main};
+use esp_local_agent::console::{Event, LineEditor};
+use esp_local_agent::{DIM, StaticEmbedder, VOCAB_SIZE, cosine_similarity};
 use esp_println::{Printer, print, println};
 use log::info;
-use static_models_bm::console::{Event, LineEditor};
-use static_models_bm::{DIM, StaticEmbedder, VOCAB_SIZE, cosine_similarity};
 
 extern crate alloc;
 
@@ -109,10 +109,10 @@ fn main() -> ! {
 
     // The model and the vocabulary are embedded in the firmware image and read in place
     // from flash: building the embedder copies nothing.
-    let embedder = static_models_bm::embedder();
+    let embedder = esp_local_agent::embedder();
     info!(
         "potion ready: {VOCAB_SIZE} tokens x {DIM} dims, table {table_kib} KiB in flash",
-        table_kib = static_models_bm::embedding_table().len() / 1024
+        table_kib = esp_local_agent::embedding_table().len() / 1024
     );
 
     let corpus_vectors: Vec<Vec<f32>> = CORPUS.iter().map(|text| embedder.embed(text)).collect();
