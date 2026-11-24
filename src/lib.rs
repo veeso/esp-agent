@@ -4,24 +4,19 @@
 //! based on [`static-models-bm`](https://github.com/qdrant-labs/static-models-bm) by
 //! [AstraBert](https://github.com/AstraBert).
 //!
+//! The library is chip-agnostic: it depends on no HAL and sets up no linker
+//! configuration. Add it to an existing ESP firmware project, which keeps ownership of
+//! the chip setup and must provide a global allocator (for example with `esp-alloc`).
+//!
 //! Everything the model needs is embedded in the firmware image:
 //!
 //! * `model/model.safetensors` is included as-is and stays in flash (read in place).
 //! * `model/tokenizer.json` is compiled by `build.rs` into a sorted binary vocabulary,
 //!   also read in place.
 //!
-//! The only heap use at run time is small per-request scratch (normalized text, token
-//! ids, the output vector).
-//!
-//! ## Feature flags
-//!
-//! Select exactly one chip feature. ESP32-S31 builds require
-//! `--no-default-features --features esp32s31`.
-//!
-//! | name       | description          | default |
-//! |------------|----------------------|---------|
-//! | `esp32s3`  | Build for ESP32-S3.  | ✔       |
-//! | `esp32s31` | Build for ESP32-S31. |         |
+//! The embedded model takes about 7.2 MiB of flash, so the firmware application
+//! partition must be large enough to hold it. The only heap use at run time is small
+//! per-request scratch (normalized text, token ids, the output vector).
 #![no_std]
 
 extern crate alloc;

@@ -24,24 +24,24 @@ clippy_s31 args="":
 [group('code-check')]
 clippy args="": (clippy_s3 args) (clippy_s31 args)
 
-# Build Rust documentation for the ESP32-S3 and deny warnings.
+# Build the library documentation for the ESP32-S3 and deny warnings.
 [group('code-check')]
 doc_s3 args="":
   RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps {{ args }}
 
-# Build Rust documentation for the ESP32-S31 and deny warnings.
+# Build the library documentation for the ESP32-S31 and deny warnings.
 [group('code-check')]
 doc_s31 args="":
-  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps {{ s31_flags }} {{ args }}
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps {{ s31_target }} {{ args }}
 
-# Build Rust documentation for both chips and deny warnings.
+# Build the library documentation for both chips and deny warnings.
 [group('code-check')]
 doc args="": (doc_s3 args) (doc_s31 args)
 
 # Check advisories, licenses, bans, and dependency sources.
 [group('code-check')]
 deny args="":
-  cargo deny check {{ args }}
+  cargo deny --workspace check {{ args }}
 
 # Scan paths for verified or unknown secrets.
 [group('code-check')]

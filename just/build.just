@@ -1,29 +1,35 @@
-# Cargo flags that select the ESP32-S31 target and feature.
-s31_flags := "--target riscv32imafc-unknown-none-elf --no-default-features --features esp32s31"
+# Example firmware crate that the build and run recipes target.
+example := "semantic-search"
 
-# Build the firmware for the ESP32-S3 in release mode.
+# Cargo flag that selects the ESP32-S31 target.
+s31_target := "--target riscv32imafc-unknown-none-elf"
+
+# Cargo flags that select the ESP32-S31 target and the example chip feature.
+s31_flags := s31_target + " --no-default-features --features " + example + "/esp32s31"
+
+# Build the example firmware for the ESP32-S3 in release mode.
 [group('build')]
 build_s3 args="":
-  cargo build --locked --release {{ args }}
+  cargo build --locked --release --package {{ example }} {{ args }}
 
-# Build the firmware for the ESP32-S31 in release mode.
+# Build the example firmware for the ESP32-S31 in release mode.
 [group('build')]
 build_s31 args="":
-  cargo build --locked --release {{ s31_flags }} {{ args }}
+  cargo build --locked --release --package {{ example }} {{ s31_flags }} {{ args }}
 
-# Build the firmware for both chips in release mode.
+# Build the example firmware for both chips in release mode.
 [group('build')]
 build args="": (build_s3 args) (build_s31 args)
 
-# Flash the ESP32-S3 and open the serial monitor.
+# Flash the example firmware to the ESP32-S3 and open the serial monitor.
 [group('build')]
 run_s3 args="":
-  cargo run --locked --release {{ args }}
+  cargo run --locked --release --package {{ example }} {{ args }}
 
-# Flash the ESP32-S31 and open the serial monitor.
+# Flash the example firmware to the ESP32-S31 and open the serial monitor.
 [group('build')]
 run_s31 args="":
-  cargo run --locked --release {{ s31_flags }} {{ args }}
+  cargo run --locked --release --package {{ example }} {{ s31_flags }} {{ args }}
 
 # Open the serial monitor without flashing.
 [group('build')]
