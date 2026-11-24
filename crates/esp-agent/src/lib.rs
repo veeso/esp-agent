@@ -21,8 +21,8 @@
 //! The table is included as-is and stays in flash, where it is read in place. The
 //! vocabulary is compiled into a sorted binary blob that is also read in place. The
 //! firmware application partition must therefore be large enough to hold every model:
-//! potion-2M takes about 7.2 MiB. The only heap use at run time is small per-request
-//! scratch (normalized text, token ids, the output vector).
+//! potion-2M takes about 7.2 MiB. A [`Scratch`] retains heap capacity for use across
+//! embedding and search calls.
 //!
 //! # Embedding text
 //!
@@ -61,6 +61,33 @@
 //! entries returns every entry, and a `k` of zero returns none. A query with no known
 //! words scores every entry `0.0`, so the hits are the first entries in insertion order.
 //! An [`Index`] stores vectors you computed yourself in the same way.
+//!
+//! # Reusing buffers
+//!
+//! The one-call methods allocate fresh buffers on every call. A firmware loop can keep a
+//! [`Scratch`] and a hits vector alive instead:
+//!
+//! ```rust,ignore
+//! extern crate alloc;
+//!
+//! use alloc::vec::Vec;
+//! use esp_agent::{Hit, Scratch};
+//!
+//! let mut scratch = Scratch::new();
+//! let mut hits: Vec<Hit<'_, u32>> = Vec::with_capacity(3);
+//! loop {
+//!     retriever.search_with(&next_question(), 3, &mut scratch, &mut hits);
+//!     for hit in &hits {
+//!         let text = retriever.text(hit.index).unwrap();
+//!     }
+//! }
+//! ```
+//!
+//! Once the buffers are warm, [`WordPieceTokenizer::encode_with`], [`Embedder::embed_with`],
+//! [`Index::search_into`], and [`Retriever::search_with`] reuse their buffers. A call
+//! allocates only if the scratch or hits vector needs to grow. Reserving room for `k`
+//! hits covers any search returning up to `k` entries. Use [`Retriever::text`] to borrow
+//! the original text at a hit's insertion position.
 #![no_std]
 
 extern crate alloc;
@@ -69,6 +96,7 @@ mod embedder;
 mod index;
 mod model;
 mod retriever;
+mod scratch;
 mod tokenizer;
 
 #[doc(inline)]
@@ -79,6 +107,8 @@ pub use index::{Hit, Index};
 pub use model::Model;
 #[doc(inline)]
 pub use retriever::{Retriever, TextHit};
+#[doc(inline)]
+pub use scratch::Scratch;
 #[doc(inline)]
 pub use tokenizer::{WordPieceTokenizer, normalize};
 

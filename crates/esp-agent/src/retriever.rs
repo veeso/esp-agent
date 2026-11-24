@@ -4,7 +4,8 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::embedder::Embedder;
-use crate::index::Index;
+use crate::index::{Hit, Index};
+use crate::scratch::Scratch;
 
 /// A stored text and its associated payload, found by [`Retriever::search`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,6 +71,12 @@ impl<T> Retriever<T> {
         &self.index
     }
 
+    /// Returns the original text at an insertion index, or `None` if it is out of bounds.
+    #[must_use]
+    pub fn text(&self, index: usize) -> Option<&str> {
+        self.texts.get(index).map(AsRef::as_ref)
+    }
+
     /// Returns the number of stored texts.
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -95,16 +102,45 @@ impl<T> Retriever<T> {
     /// zero.
     #[must_use]
     pub fn search(&self, query: &str, k: usize) -> Vec<TextHit<'_, T>> {
-        if k == 0 || self.is_empty() {
-            return Vec::new();
-        }
-        self.index
-            .search_with(&self.embedder.embed(query), k, |hit| TextHit {
+        let mut hits = Vec::with_capacity(k.min(self.len()));
+        self.search_with(query, k, &mut Scratch::new(), &mut hits);
+        hits.into_iter()
+            .map(|hit| TextHit {
                 score: hit.score,
                 index: hit.index,
                 text: &self.texts[hit.index],
                 payload: hit.payload,
             })
+            .collect()
+    }
+
+    /// Replaces the contents of `hits` with the `k` stored texts closest to `query`, best
+    /// first.
+    ///
+    /// Like [`search`](Self::search), but embeds the query in the buffers of `scratch` and
+    /// fills a vector you keep. With a warm `scratch` and a `hits` that has room for `k`
+    /// hits, the call is allocation-free. One `scratch` can serve retrievers of different
+    /// dimensions. Pass a hit's [`index`](Hit::index) to [`text`](Self::text) to borrow
+    /// the original text.
+    pub fn search_with<'a>(
+        &'a self,
+        query: &str,
+        k: usize,
+        scratch: &mut Scratch,
+        hits: &mut Vec<Hit<'a, T>>,
+    ) {
+        if k == 0 || self.is_empty() {
+            hits.clear();
+            return;
+        }
+        let Scratch {
+            normalized,
+            ids,
+            query: vector,
+        } = scratch;
+        vector.resize(self.embedder.dim(), 0.0);
+        self.embedder.embed_parts(query, normalized, ids, vector);
+        self.index.search_into(vector, k, hits);
     }
 }
 

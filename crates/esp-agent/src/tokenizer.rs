@@ -3,8 +3,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::char::{canonical_combining_class, decompose_canonical};
 use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory};
+
+use crate::scratch::Scratch;
 
 const CONTINUING_PREFIX: &str = "##";
 
@@ -57,13 +59,28 @@ impl Vocab {
     ///
     /// May panic if the count, offsets, or token entries read during lookup
     /// extend past the blob.
+    #[cfg(test)]
     pub fn get(&self, token: &str) -> Option<u32> {
-        let key = token.as_bytes();
+        self.get_piece(false, token)
+    }
+
+    /// Returns the id of `piece` with the `##` continuation prefix when `continuation` is
+    /// set, if that token is in the vocabulary.
+    ///
+    /// The key is compared as a chain of bytes, so no string is built for the lookup.
+    ///
+    /// # Panics
+    ///
+    /// May panic if the count, offsets, or token entries read during lookup
+    /// extend past the blob.
+    pub fn get_piece(&self, continuation: bool, piece: &str) -> Option<u32> {
+        let prefix = if continuation { CONTINUING_PREFIX } else { "" };
+        let key = prefix.bytes().chain(piece.bytes());
         let (mut lo, mut hi) = (0, self.len());
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
             let (candidate, id) = self.entry(mid);
-            match candidate.cmp(key) {
+            match candidate.iter().copied().cmp(key.clone()) {
                 core::cmp::Ordering::Equal => return Some(id),
                 core::cmp::Ordering::Less => lo = mid + 1,
                 core::cmp::Ordering::Greater => hi = mid,
@@ -131,28 +148,50 @@ impl WordPieceTokenizer {
     /// Tokenizes `text` and returns its token ids, **without** the `[UNK]` ids
     /// (a static embedding model ignores them).
     pub fn encode(&self, text: &str) -> Vec<u32> {
-        self.encode_text(text, false)
+        let mut ids = Vec::new();
+        self.encode_parts(text, &mut NormalizedText::new(), &mut ids, false);
+        ids
     }
 
     /// Like [`encode`](Self::encode), but keeps `[UNK]` ids in the output.
     pub fn encode_with_unk(&self, text: &str) -> Vec<u32> {
-        self.encode_text(text, true)
+        let mut ids = Vec::new();
+        self.encode_parts(text, &mut NormalizedText::new(), &mut ids, true);
+        ids
     }
 
-    /// Normalizes text, splits it into words, and tokenizes each word.
+    /// Like [`encode`](Self::encode), but works in the buffers of `scratch`.
     ///
+    /// The returned ids stay valid until `scratch` is used again. A warm `scratch` makes the
+    /// call allocation-free.
+    pub fn encode_with<'s>(&self, text: &str, scratch: &'s mut Scratch) -> &'s [u32] {
+        let Scratch {
+            normalized, ids, ..
+        } = scratch;
+        self.encode_parts(text, normalized, ids, false);
+        ids
+    }
+
+    /// Replaces `ids` with the token IDs for `text`, using `normalized` as scratch.
+    ///
+    /// Splits the normalized text into words and tokenizes each word.
     /// Example: "hello, world" -> words "hello" "," "world" -> one `word_piece` call each.
-    fn encode_text(&self, text: &str, keep_unk: bool) -> Vec<u32> {
-        let mut ids = Vec::new();
+    pub(crate) fn encode_parts(
+        &self,
+        text: &str,
+        normalized: &mut NormalizedText,
+        ids: &mut Vec<u32>,
+        keep_unk: bool,
+    ) {
+        ids.clear();
         let mut remaining = self.max_length;
         if remaining == 0 {
-            return ids;
+            return;
         }
-        let text = normalize(text);
-        // Reused buffer for building vocab lookup keys, so we don't allocate per lookup.
-        let mut scratch = String::new();
+        normalized.normalize(text);
+        let text = normalized.text.as_str();
         let mut encode_word = |word: &str| {
-            remaining -= self.word_piece(word, &mut scratch, &mut ids, remaining, keep_unk);
+            remaining -= self.word_piece(word, ids, remaining, keep_unk);
             remaining == 0
         };
         // Byte index where the word currently being scanned began (None between words).
@@ -168,11 +207,11 @@ impl WordPieceTokenizer {
                 if let Some(start) = word_start.take()
                     && encode_word(&text[start..i])
                 {
-                    return ids;
+                    return;
                 }
                 // Punctuation is not just a separator: it is also a one-char word itself.
                 if is_punct && encode_word(&text[i..i + c.len_utf8()]) {
-                    return ids;
+                    return;
                 }
             } else if word_start.is_none() {
                 // First ordinary char after a separator: a new word starts here.
@@ -183,7 +222,6 @@ impl WordPieceTokenizer {
         if let Some(start) = word_start {
             encode_word(&text[start..]);
         }
-        ids
     }
 
     /// Greedy longest-match-first WordPiece over one pre-tokenized word.
@@ -198,7 +236,6 @@ impl WordPieceTokenizer {
     fn word_piece(
         &self,
         word: &str,
-        scratch: &mut String,
         ids: &mut Vec<u32>,
         remaining: usize,
         keep_unk: bool,
@@ -213,15 +250,17 @@ impl WordPieceTokenizer {
         let mut start = 0;
         while ok && start < word.len() {
             // The blob encodes the complete vocabulary key length in one byte.
-            let prefix = if start == 0 { "" } else { CONTINUING_PREFIX };
-            let max_bytes = usize::from(u8::MAX) - prefix.len();
+            let continuation = start != 0;
+            let prefix_len = if continuation {
+                CONTINUING_PREFIX.len()
+            } else {
+                0
+            };
+            let max_bytes = usize::from(u8::MAX) - prefix_len;
             let mut end = word.floor_char_boundary(start.saturating_add(max_bytes));
             let mut found = None;
             while end > start {
-                scratch.clear();
-                scratch.push_str(prefix);
-                scratch.push_str(&word[start..end]);
-                if let Some(id) = self.vocab.get(scratch) {
+                if let Some(id) = self.vocab.get_piece(continuation, &word[start..end]) {
                     found = Some(id);
                     break;
                 }
@@ -264,32 +303,68 @@ impl WordPieceTokenizer {
 /// Cleans control characters and whitespace, pads Chinese characters with spaces,
 /// lowercases letters, and strips accents.
 pub fn normalize(text: &str) -> String {
-    // clean_text + handle_chinese_chars
-    let mut cleaned = String::with_capacity(text.len() + text.len() / 8);
-    for c in text.chars() {
-        if c == '\0' || c == '\u{fffd}' || is_control(c) {
-            continue;
-        }
-        let c = if c.is_whitespace() { ' ' } else { c };
-        if is_chinese_char(c) {
-            cleaned.push(' ');
-            cleaned.push(c);
-            cleaned.push(' ');
-        } else {
-            cleaned.push(c);
+    let mut normalized = NormalizedText {
+        text: String::with_capacity(text.len() + text.len() / 8),
+        ..NormalizedText::new()
+    };
+    normalized.normalize(text);
+    normalized.text
+}
+
+/// Reusable storage for the normalized string and one run of combining marks.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct NormalizedText {
+    text: String,
+    // Class, original position, and character. Position breaks ties in canonical order.
+    marks: Vec<(u8, usize, char)>,
+}
+
+impl NormalizedText {
+    pub(crate) const fn new() -> Self {
+        Self {
+            text: String::new(),
+            marks: Vec::new(),
         }
     }
 
-    // strip_accents (NFD, drop nonspacing marks), then lowercase
-    let mut out = String::with_capacity(cleaned.len());
-    for c in cleaned
-        .chars()
-        .nfd()
-        .filter(|c| c.general_category() != GeneralCategory::NonspacingMark)
-    {
-        out.extend(c.to_lowercase());
+    fn normalize(&mut self, text: &str) {
+        self.text.clear();
+        for c in text
+            .chars()
+            .filter(|&c| c != '\0' && c != '\u{fffd}' && !is_control(c))
+        {
+            let c = if c.is_whitespace() { ' ' } else { c };
+            if is_chinese_char(c) {
+                self.push_decomposed(' ');
+                decompose_canonical(c, |part| self.push_decomposed(part));
+                self.push_decomposed(' ');
+            } else {
+                decompose_canonical(c, |part| self.push_decomposed(part));
+            }
+        }
+        self.flush_marks();
     }
-    out
+
+    fn push_decomposed(&mut self, c: char) {
+        let class = canonical_combining_class(c);
+        // A starter ends the preceding run even when accent stripping discards it.
+        if class == 0 {
+            self.flush_marks();
+        }
+        if c.general_category() != GeneralCategory::NonspacingMark {
+            if class == 0 {
+                self.text.extend(c.to_lowercase());
+            } else {
+                self.marks.push((class, self.marks.len(), c));
+            }
+        }
+    }
+
+    fn flush_marks(&mut self) {
+        self.marks.sort_unstable();
+        self.text
+            .extend(self.marks.drain(..).flat_map(|(_, _, c)| c.to_lowercase()));
+    }
 }
 
 /// Control and other non-printing characters, except tab, newline and carriage return
@@ -327,13 +402,18 @@ fn is_chinese_char(c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Vocab, WordPieceTokenizer, normalize};
+    use super::{NormalizedText, Vocab, WordPieceTokenizer, normalize};
     use crate::test_util::{VOCAB, tokenizer, vocab};
 
     #[test]
     fn normalize_applies_bert_text_rules() {
         for (rule, input, expected) in [
             ("strip accents and lowercase", "Héllo WÖRLD", "hello world"),
+            (
+                "canonical order, stable ties, and discarded starter boundaries",
+                "\u{302f}\u{302e}\u{1b44}\u{034f}\u{1bf2}",
+                "\u{1b44}\u{302f}\u{302e}\u{1bf2}",
+            ),
             ("replace whitespace", "a\tb\nc\rd", "a b c d"),
             (
                 "remove control and format characters",
@@ -344,6 +424,23 @@ mod tests {
         ] {
             assert_eq!(normalize(input), expected, "{rule}");
         }
+    }
+
+    #[test]
+    fn normalization_clears_the_buffer() {
+        let mut out = NormalizedText::new();
+        out.normalize("stale");
+        out.normalize("Hi");
+        assert_eq!(out.text, "hi");
+    }
+
+    #[test]
+    fn get_piece_matches_prefixed_lookups() {
+        let vocab = vocab(VOCAB);
+        assert_eq!(vocab.get_piece(true, "aff"), Some(2));
+        assert_eq!(vocab.get_piece(false, "un"), Some(1));
+        assert_eq!(vocab.get_piece(false, "aff"), None);
+        assert_eq!(vocab.get_piece(true, "un"), None);
     }
 
     #[test]
@@ -384,18 +481,29 @@ mod tests {
     }
 
     #[test]
-    fn long_words_fit_the_lookup_buffer_and_validate_the_suffix() {
+    fn long_words_fit_the_vocab_key_limit_and_validate_the_suffix() {
         let piece = "α".repeat(126);
         let continuation = alloc::format!("##{piece}");
         let tokenizer =
             WordPieceTokenizer::new(vocab(&[(&piece, 1), (&continuation, 2)]), 0, 2000, 1);
         let word = piece.repeat(10);
-        let mut scratch = alloc::string::String::with_capacity(255);
         let mut ids = alloc::vec::Vec::new();
-        tokenizer.word_piece(&word, &mut scratch, &mut ids, 1, true);
+        tokenizer.word_piece(&word, &mut ids, 1, true);
         assert_eq!(ids, [1]);
-        assert_eq!(scratch.capacity(), 255);
         assert_eq!(tokenizer.encode_with_unk(&alloc::format!("{word}x")), [0]);
+    }
+
+    #[test]
+    fn encode_with_matches_encode() {
+        let tokenizer = tokenizer(100, 512);
+        let mut scratch = crate::Scratch::new();
+        for text in ["unaffable", "hello xyz world", "Hello, world", ""] {
+            assert_eq!(
+                tokenizer.encode_with(text, &mut scratch),
+                tokenizer.encode(text),
+                "{text:?}"
+            );
+        }
     }
 
     #[test]

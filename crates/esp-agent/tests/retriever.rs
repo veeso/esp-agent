@@ -1,8 +1,9 @@
 //! Checks that a retriever finds stored texts through a real model folder.
 
-use esp_agent::{Embedder, Model, Retriever, model};
+use esp_agent::{Embedder, Model, Retriever, Scratch, model};
 
 static TINY_2D: Model = model!("tests/fixtures/tiny-2d");
+static TINY_3D: Model = model!("tests/fixtures/tiny-3d");
 
 #[derive(Debug, PartialEq)]
 struct Doc {
@@ -51,4 +52,45 @@ fn extend_inserts_every_text() {
     assert!(!retriever.is_empty());
     assert_eq!(retriever.index().dim(), 2);
     assert_eq!(retriever.search("fox", 1)[0].payload, &'b');
+}
+
+#[test]
+fn one_scratch_serves_retrievers_of_different_dimensions() {
+    let mut flat = Retriever::new(Embedder::new(TINY_2D));
+    flat.insert("hello", ());
+    let mut deep = Retriever::new(Embedder::new(TINY_3D));
+    deep.insert("hello", ());
+    let mut scratch = Scratch::new();
+    let mut hits = Vec::new();
+
+    for retriever in [&flat, &deep, &flat] {
+        retriever.search_with("hello", 1, &mut scratch, &mut hits);
+        assert_eq!(hits.len(), 1);
+        let score = hits[0].score;
+        assert!((score - 1.0).abs() < 1e-6, "score was {score}");
+    }
+}
+
+#[test]
+fn empty_search_replaces_previous_hits() {
+    let retriever = three_docs();
+    let empty = Retriever::new(Embedder::new(TINY_2D));
+    let mut scratch = Scratch::new();
+    let mut hits = Vec::new();
+    for (next, k) in [(&retriever, 0), (&empty, 1)] {
+        retriever.search_with("hello", 1, &mut scratch, &mut hits);
+        assert_eq!(hits.len(), 1);
+        next.search_with("hello", k, &mut scratch, &mut hits);
+        assert!(hits.is_empty());
+    }
+}
+
+#[test]
+fn reused_hits_can_read_text_owned_by_the_retriever() {
+    let retriever = three_docs();
+    let mut scratch = Scratch::new();
+    let mut hits = Vec::new();
+    retriever.search_with("hello", 1, &mut scratch, &mut hits);
+    assert_eq!(retriever.text(hits[0].index), Some("hello"));
+    assert_eq!(retriever.text(retriever.len()), None);
 }

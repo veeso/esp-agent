@@ -1,8 +1,6 @@
 //! A brute-force in-memory vector index with a payload per entry.
 
-use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
-use core::cmp::Ordering;
 
 /// A stored vector with its payload, found by [`Index::search`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -14,35 +12,6 @@ pub struct Hit<'a, T> {
     /// The payload stored with the vector.
     pub payload: &'a T,
 }
-
-/// The worst candidate sorts last, placing it at the root of the max-heap.
-struct Candidate {
-    score: f32,
-    index: usize,
-}
-
-impl Ord for Candidate {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .score
-            .total_cmp(&self.score)
-            .then(self.index.cmp(&other.index))
-    }
-}
-
-impl PartialOrd for Candidate {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Candidate {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other).is_eq()
-    }
-}
-
-impl Eq for Candidate {}
 
 /// Stores vectors with a payload each and returns the ones closest to a query.
 ///
@@ -124,25 +93,32 @@ impl<T> Index<T> {
     /// Panics if `query.len()` is not equal to [`dim`](Self::dim).
     #[must_use]
     pub fn search(&self, query: &[f32], k: usize) -> Vec<Hit<'_, T>> {
-        self.search_with(query, k, |hit| hit)
+        let mut hits = Vec::with_capacity(k.min(self.len()));
+        self.search_into(query, k, &mut hits);
+        hits
     }
 
-    pub(crate) fn search_with<'a, H>(
-        &'a self,
-        query: &[f32],
-        k: usize,
-        hit: impl Fn(Hit<'a, T>) -> H,
-    ) -> Vec<H> {
+    /// Replaces the contents of `hits` with the `k` entries closest to `query`, best first.
+    ///
+    /// Like [`search`](Self::search), but fills a vector you keep. Only the best `k` hits
+    /// are held while the entries are scanned, so a `hits` with room for `k` hits makes the
+    /// call allocation-free; a smaller one grows once and the result is still complete.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `query.len()` is not equal to [`dim`](Self::dim).
+    pub fn search_into<'a>(&'a self, query: &[f32], k: usize, hits: &mut Vec<Hit<'a, T>>) {
         assert_eq!(query.len(), self.dim, "query must have `dim` components");
+        hits.clear();
         let limit = k.min(self.len());
         if limit == 0 {
-            return Vec::new();
+            return;
         }
+        hits.reserve(limit);
 
         let query_squared_norm = dot(query, query);
         let query_norm = libm::sqrtf(query_squared_norm);
         let mut wide_query_norm = None;
-        let mut best = BinaryHeap::with_capacity(limit);
         for index in 0..self.len() {
             let row = self.row(index);
             let row_squared_norm = dot(row, row);
@@ -161,30 +137,54 @@ impl<T> Index<T> {
             };
             // Canonicalize signed zero so equally close candidates tie.
             let score = score + 0.0;
-            let candidate = Candidate { score, index };
-            if best.len() < limit {
-                best.push(candidate);
-            } else if let Some(mut worst) = best.peek_mut()
-                && candidate < *worst
-            {
-                *worst = candidate;
+            let hit = Hit {
+                score,
+                index,
+                payload: &self.payloads[index],
+            };
+            if index < limit {
+                hits.push(hit);
+                continue;
+            }
+            if index == limit {
+                // Heapify only when more than k entries compete for the output buffer.
+                for root in (0..limit / 2).rev() {
+                    sift_down(hits, root);
+                }
+            }
+            if rank(&hit, &hits[0]).is_lt() {
+                hits[0] = hit;
+                sift_down(hits, 0);
             }
         }
-
-        let mut hits = Vec::with_capacity(limit);
-        hits.extend(best.into_sorted_vec().into_iter().map(|candidate| {
-            hit(Hit {
-                score: candidate.score,
-                index: candidate.index,
-                payload: &self.payloads[candidate.index],
-            })
-        }));
-        hits
+        hits.sort_unstable_by(rank);
     }
 
     /// Returns the vector of entry `index`.
     fn row(&self, index: usize) -> &[f32] {
         &self.vectors[index * self.dim..(index + 1) * self.dim]
+    }
+}
+
+/// Orders best first, breaking ties by insertion position.
+fn rank<T>(a: &Hit<'_, T>, b: &Hit<'_, T>) -> core::cmp::Ordering {
+    b.score
+        .total_cmp(&a.score)
+        .then_with(|| a.index.cmp(&b.index))
+}
+
+/// Restores a worst-first heap after replacing its root.
+fn sift_down<T>(hits: &mut [Hit<'_, T>], mut root: usize) {
+    while root < hits.len() / 2 {
+        let mut child = 2 * root + 1;
+        if child + 1 < hits.len() && rank(&hits[child + 1], &hits[child]).is_gt() {
+            child += 1;
+        }
+        if rank(&hits[root], &hits[child]).is_ge() {
+            break;
+        }
+        hits.swap(root, child);
+        root = child;
     }
 }
 
@@ -295,6 +295,36 @@ mod tests {
         let hits = index.search(&[0.0, 1.0], 1);
         assert_eq!(hits.capacity(), 1);
         assert_eq!(hits[0].index, 1);
+    }
+
+    #[test]
+    fn search_into_replaces_previous_hits() {
+        let index = three_entries();
+        let mut hits = Vec::new();
+        index.search_into(&[1.0, 0.0], 3, &mut hits);
+        assert_eq!(hits.len(), 3);
+
+        index.search_into(&[0.0, 1.0], 1, &mut hits);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].payload, &'b');
+
+        index.search_into(&[0.0, 1.0], 0, &mut hits);
+        assert!(hits.is_empty());
+
+        index.search_into(&[1.0, 0.0], 3, &mut hits);
+        assert_eq!(hits.len(), 3);
+        let empty = Index::new(2);
+        empty.search_into(&[1.0, 0.0], 3, &mut hits);
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn search_into_with_small_capacity_returns_k_hits() {
+        let index = three_entries();
+        let mut hits = Vec::new();
+        index.search_into(&[1.0, 0.0], 2, &mut hits);
+        assert_eq!(hits, index.search(&[1.0, 0.0], 2));
+        assert_eq!(hits.len(), 2);
     }
 
     #[test]

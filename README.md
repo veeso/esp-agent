@@ -17,7 +17,8 @@ console.
 Each firmware chooses which [static embedding models](#embedding-models) to
 include. The semantic search example embeds `potion-base-2M` and reads
 its 7.2 MiB embedding table (F32, 29,528 tokens x 64 dims) and tokenizer
-vocabulary in place from flash. Only small per-request scratch data uses the heap.
+vocabulary in place from flash. A reusable `Scratch` retains heap capacity between
+queries. Calls that fit those buffers need no new allocation for scratch data.
 
 ## Roadmap
 
@@ -81,6 +82,25 @@ known words scores every entry `0.0`, so the hits are the first entries in
 insertion order. The retriever gives read-only access to its embedder, because
 changing the embedder settings after inserting texts would mix vectors built
 with different settings.
+
+A firmware loop can search without allocating by keeping one `Scratch` and one
+hits vector, and reusing them for every query:
+
+```rust
+extern crate alloc;
+
+use alloc::vec::Vec;
+use esp_agent::Scratch;
+
+let mut scratch = Scratch::new();
+let mut hits = Vec::with_capacity(3);
+retriever.search_with("Which city is France's capital?", 3, &mut scratch, &mut hits);
+```
+
+`encode_with`, `embed_with`, `search_into`, and `search_with` allocate only when
+a buffer needs to grow. Reserving room for `k` hits covers any search returning
+up to `k` entries. Use `retriever.text(hit.index)` to borrow the original text
+for a hit.
 
 The library ships no model. `model!` embeds the folder you name, which holds
 `tokenizer.json` and `model.safetensors`, and a relative path is resolved
