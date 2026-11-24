@@ -151,6 +151,7 @@ just doc
 just book
 just book_serve
 just test
+just coverage
 just test_bench
 just bench_all
 just bench <group>
@@ -185,6 +186,7 @@ The local recipes expect:
 - mdBook 0.5.4.
 - dprint 0.56.1 and nightly rustfmt.
 - cargo-deny.
+- cargo-llvm-cov and the `llvm-tools-preview` component of Rust 1.97.
 - TruffleHog.
 - git-cliff.
 - zizmor for workflow changes.

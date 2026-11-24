@@ -83,6 +83,15 @@ just build_host
 just test
 ```
 
+To measure test coverage, install
+[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) and run
+`just coverage`, which writes an LCOV report to `lcov.info`:
+
+```sh
+rustup component add llvm-tools-preview --toolchain 1.97
+just coverage
+```
+
 ## Credits
 
 `esp-agent` started as a fork of

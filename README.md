@@ -1,6 +1,7 @@
 # esp-agent
 
 [![CI](https://github.com/veeso/esp-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/ci.yml)
+[![Coverage](https://coveralls.io/repos/github/veeso/esp-agent/badge.svg?branch=main)](https://coveralls.io/github/veeso/esp-agent?branch=main)
 [![TruffleHog](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml)
 [![zizmor](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
@@ -238,6 +239,17 @@ toolchain pinned in `rust-toolchain.toml` and the ESP32-S3 default target in
 `just test` downloads the potion-2M model on first use, because the potion
 tests embed it, and later runs reuse the downloaded files.
 
+To measure test coverage, install
+[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) and the
+`llvm-tools-preview` component, then run `just coverage`. It runs the same tests
+and writes an LCOV report to `lcov.info`, the file CI uploads to
+[Coveralls](https://coveralls.io/github/veeso/esp-agent):
+
+```sh
+rustup component add llvm-tools-preview --toolchain 1.97
+just coverage
+```
+
 ## Requirements
 
 - An ESP32-S3 or ESP32-S31-Korvo-1 with 16 MiB of flash.
@@ -257,6 +269,7 @@ tests embed it, and later runs reuse the downloaded files.
 - [mdBook](https://rust-lang.github.io/mdBook/) 0.5.4 for the documentation website.
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) for dependency
   policy.
+- [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) for test coverage.
 - [TruffleHog](https://github.com/trufflesecurity/trufflehog) for secret
   scanning.
 - [git-cliff](https://git-cliff.org) for changelog generation.
@@ -271,7 +284,7 @@ tests embed it, and later runs reuse the downloaded files.
 On macOS with Homebrew, install the packaged tools with:
 
 ```sh
-brew install cargo-deny dprint git-cliff just mdbook shellcheck trufflehog zizmor
+brew install cargo-deny cargo-llvm-cov dprint git-cliff just mdbook shellcheck trufflehog zizmor
 rustup toolchain install nightly --profile minimal --component rustfmt
 ```
 
@@ -403,6 +416,7 @@ just doc
 just book
 just book_serve
 just test
+just coverage
 just test_bench
 just bench_all
 just bench tokenize
@@ -418,7 +432,7 @@ just changelog 0.1.0
 ```
 
 For recipes with both chip variants, the unsuffixed recipe runs `_s3` and then `_s31`.
-`build_host`, `test`, `test_bench`, `clippy_bench`, and the `bench` recipes run on
+`build_host`, `test`, `coverage`, `test_bench`, `clippy_bench`, and the `bench` recipes run on
 your computer with the standard Rust toolchain.
 
 ### Build the documentation website

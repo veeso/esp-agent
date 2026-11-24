@@ -48,6 +48,12 @@ doc args="": (doc_s3 args) (doc_s31 args)
 test args="": download_test_model
   {{ host_cargo }} test --locked {{ host_packages }} --target host-tuple {{ args }}
 
+# Run the library tests on this computer with coverage and write an LCOV report.
+# cargo-llvm-cov does not accept `host-tuple`, so pass the host triple explicitly.
+[group('code-check')]
+coverage output="lcov.info" args="": download_test_model
+  {{ host_cargo }} llvm-cov test --locked {{ host_packages }} --target "$(rustc +{{ host_toolchain }} --print host-tuple)" --lcov --output-path {{ output }} {{ args }}
+
 # Run the benchmark report tests on this computer with the standard Rust toolchain.
 [group('code-check')]
 test_bench args="": download_test_model
