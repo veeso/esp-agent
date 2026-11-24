@@ -115,19 +115,28 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy,llvm-tools-preview
       - name: Enable caching
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
         with:
           just-version: "1.59.0"
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-llvm-cov
       - name: Build
         run: just build_host
       - name: Lint benchmarks
         run: just clippy_bench "-- -D warnings"
-      - name: Run tests
-        run: just test
+      - name: Run tests with coverage
+        run: just coverage
+      - name: Upload to Coveralls
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          file: lcov.info
+          format: lcov
       - name: Test benchmark report
         run: just test_bench
 
