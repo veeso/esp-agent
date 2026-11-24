@@ -14,8 +14,8 @@ project is at an early stage: today it ships the first building block, an
 on-device text embedder, plus an example firmware with a semantic search
 console.
 
-Each firmware chooses which static embedding models to include. The semantic
-search example embeds [potion-2M](https://huggingface.co/minishlab) and reads
+Each firmware chooses which [static embedding models](#embedding-models) to
+include. The semantic search example embeds `potion-base-2M` and reads
 its 7.2 MiB embedding table (F32, 29,528 tokens x 64 dims) and tokenizer
 vocabulary in place from flash. Only small per-request scratch data uses the heap.
 
@@ -101,6 +101,44 @@ project keeps full control of the chip setup. Your firmware must:
 
 See [`examples/semantic-search`](examples/semantic-search) for a complete
 firmware that uses the library.
+
+## Embedding models
+
+Start with `potion-base-2M` for general English search on a 16 MiB board. If
+your application partition has room, `potion-base-4M` scores higher on
+Minish Lab's [retrieval benchmarks][potion-4m]. For biomedical English text,
+try `pubmedbert-base-embeddings-2M`, which NeuML evaluated on
+[PubMed datasets][pubmedbert-2m].
+
+These models use BERT WordPiece and a single F32 embedding table. Flash sizes
+include the weights and compiled vocabulary, but not the rest of the firmware.
+
+| Model                           | Model data in flash | Parameters | Hugging Face            |
+| ------------------------------- | ------------------: | ---------: | ----------------------- |
+| `potion-base-2M`                |            7.64 MiB |  1,889,792 | [Minish Lab][potion-2m] |
+| `pubmedbert-base-embeddings-2M` |            7.90 MiB |  1,953,408 | [NeuML][pubmedbert-2m]  |
+| `potion-base-4M`                |           14.85 MiB |  3,779,584 | [Minish Lab][potion-4m] |
+
+From your firmware crate directory, download `tokenizer.json` and
+`model.safetensors` from the same model revision into `model/`. For example,
+to use the same Potion 2M revision as this repository's tests:
+
+```sh
+base=https://huggingface.co/minishlab/potion-base-2M/resolve/389b9f64be5aa4ae7a6bc6fe95ef20ce485ae5da
+mkdir -p model &&
+  curl --fail --location "$base/tokenizer.json" -o model/tokenizer.json &&
+  curl --fail --location "$base/model.safetensors" -o model/model.safetensors
+```
+
+Use `static POTION: Model = model!("model");` with `Embedder::new(POTION)` as
+shown in [Use it as a library](#use-it-as-a-library), then rebuild your firmware.
+Check that the resulting image fits the application partition before flashing,
+especially with Potion 4M: 16 MiB of total flash does not guarantee it will fit.
+Rebuild any stored embeddings when you switch models.
+
+[potion-2m]: https://huggingface.co/minishlab/potion-base-2M
+[pubmedbert-2m]: https://huggingface.co/NeuML/pubmedbert-base-embeddings-2M
+[potion-4m]: https://huggingface.co/minishlab/potion-base-4M
 
 ## How it works
 
