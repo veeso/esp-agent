@@ -12,7 +12,9 @@
 //! The vocabulary is **not** parsed or copied: `build.rs` compiles it into a sorted binary
 //! blob (see [`Vocab`]) that is binary-searched where it lives, in flash.
 
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use unicode_normalization::UnicodeNormalization;
 use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory};
 

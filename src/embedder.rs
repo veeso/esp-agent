@@ -5,7 +5,8 @@
 //! accessed through the cache/MMU like ordinary memory. The 7.2 MiB table is therefore
 //! never copied into RAM, and each lookup touches only the rows of the tokens in the text.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec;
+use alloc::vec::Vec;
 
 use crate::tokenizer::WordPieceTokenizer;
 

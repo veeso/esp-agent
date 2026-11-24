@@ -1,0 +1,26 @@
+# Description
+
+<!--
+Provide a brief description of the changes you made in this pull request. If
+your changes are related to a specific issue, mention the issue number (for
+example, "Fixes #123").
+-->
+
+Fixes #
+
+## Checklist
+
+- [ ] I have read the
+      [AI Policy](https://github.com/veeso/static-models-bm-s31/blob/main/AI_POLICY.md).
+- [ ] I have built and run the firmware on the boards affected by this change (ESP32-S3, ESP32-S31).
+- [ ] `just check` passes locally.
+- [ ] My commits follow the
+      [Conventional Commits](https://www.conventionalcommits.org) format; the
+      `CHANGELOG.md` is generated from them at release time.
+
+## AI Disclosure
+
+<!--
+Describe how you used AI tools in this contribution. If you did not use any AI
+tools, write "N/A".
+-->
