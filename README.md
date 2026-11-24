@@ -1,14 +1,29 @@
-# static-models-bm
+# esp-local-agent
 
-[![CI](https://github.com/veeso/static-models-bm-s31/actions/workflows/ci.yml/badge.svg)](https://github.com/veeso/static-models-bm-s31/actions/workflows/ci.yml)
-[![TruffleHog](https://github.com/veeso/static-models-bm-s31/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/veeso/static-models-bm-s31/actions/workflows/trufflehog.yml)
-[![zizmor](https://github.com/veeso/static-models-bm-s31/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/static-models-bm-s31/actions/workflows/zizmor.yml)
+[![CI](https://github.com/veeso/esp-local-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/veeso/esp-local-agent/actions/workflows/ci.yml)
+[![TruffleHog](https://github.com/veeso/esp-local-agent/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/veeso/esp-local-agent/actions/workflows/trufflehog.yml)
+[![zizmor](https://github.com/veeso/esp-local-agent/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/esp-local-agent/actions/workflows/zizmor.yml)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
 
-Bare-metal runner for the [potion-2M](https://huggingface.co/minishlab) static
-embedding model on ESP32-S3 and ESP32-S31 (`no_std`, Rust).
+A bare-metal (`no_std`, Rust) local agent runner for ESP32-S3 and ESP32-S31.
 
-The model (7.2 MiB, F32, 29,528 tokens x 64 dims) and the tokenizer vocabulary are embedded in the firmware image and read in place from flash. Only small per-request scratch data uses the heap.
+The goal of `esp-local-agent` is to run a small agent entirely on the chip, with
+prompts, skills, and context embedded in the firmware image and nothing sent to
+the cloud. The project is at an early stage: today it ships the first building
+block, an on-device text embedder with a semantic search console.
+
+The current firmware runs the [potion-2M](https://huggingface.co/minishlab)
+static embedding model. The model (7.2 MiB, F32, 29,528 tokens x 64 dims) and
+the tokenizer vocabulary are embedded in the firmware image and read in place
+from flash. Only small per-request scratch data uses the heap.
+
+## Roadmap
+
+- [x] On-device text embeddings and semantic search with potion-2M.
+- [ ] Embeddable prompts compiled into the firmware image.
+- [ ] Embeddable skills the agent can select and run.
+- [ ] Embeddable context the agent can retrieve with the embedder.
+- [ ] A local agent loop that ties prompts, skills, and context together.
 
 ## How it works
 
@@ -125,6 +140,7 @@ just build_s31
 just run_s3
 just run_s31
 just monitor
+just lock
 just fmt
 just fmt_check
 just clippy "-- -D warnings"
@@ -180,8 +196,25 @@ GitHub Actions provides:
 ## Use it in your code
 
 ```rust
-let embedder = static_models_bm::embedder();
+let embedder = esp_local_agent::embedder();
 let vector = embedder.embed("Qdrant is a vector search engine written in Rust.");
 ```
 
 The embedder is cheap to create because nothing is copied. Texts are truncated at 512 tokens.
+
+## Credits
+
+`esp-local-agent` started as a fork of
+[`static-models-bm`](https://github.com/qdrant-labs/static-models-bm) by
+[qdrant-labs](https://github.com/qdrant-labs), created by
+[AstraBert](https://github.com/AstraBert). The tokenizer, the embedder, and the
+idea of running static embedding models on bare metal all come from that work.
+Huge thanks and the utmost respect to AstraBert for it.
+
+AstraBert is also the author of
+[`statembed`](https://github.com/AstraBert/statembed), the reference that the
+tokenizer and pooling are validated against.
+
+## License
+
+`esp-local-agent` is licensed under the [Apache License 2.0](LICENSE).

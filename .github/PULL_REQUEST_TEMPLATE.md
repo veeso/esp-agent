@@ -11,7 +11,7 @@ Fixes #
 ## Checklist
 
 - [ ] I have read the
-      [AI Policy](https://github.com/veeso/static-models-bm-s31/blob/main/AI_POLICY.md).
+      [AI Policy](https://github.com/veeso/esp-local-agent/blob/main/AI_POLICY.md).
 - [ ] I have built and run the firmware on the boards affected by this change (ESP32-S3, ESP32-S31).
 - [ ] `just check` passes locally.
 - [ ] My commits follow the

@@ -1,9 +1,11 @@
 [package]
-name = "static-models-bm"
+name = "esp-local-agent"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
+repository = "https://github.com/veeso/esp-local-agent"
 rust-version = "1.97"
+description = "Bare-metal local agent runner for ESP32-S3 and ESP32-S31"
 
 [features]
 default = ["esp32s3"]
@@ -41,7 +43,7 @@ unicode-properties = { version = "0.1", default-features = false, features = ["g
 serde_json = "1"
 
 [[bin]]
-name = "static-models-bm"
+name = "esp-local-agent"
 path = "./src/bin/main.rs"
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
