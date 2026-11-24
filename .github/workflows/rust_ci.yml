@@ -59,11 +59,10 @@ jobs:
           default: true
           buildtargets: esp32s3
           ldproxy: false
-      - name: Install rust-src and confirm RISC-V target support
+      - name: Confirm RISC-V target and rust-src support
         run: |
-          rustup component add rust-src
-          rustup component list --installed | grep -Fx rust-src
           rustc --print target-list | grep -Fx riscv32imafc-unknown-none-elf
+          test -d "$(rustc --print sysroot)/lib/rustlib/src/rust/library"
       - name: Enable caching
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build ESP32-S3
