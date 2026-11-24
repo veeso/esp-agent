@@ -9,12 +9,14 @@
 
 A bare-metal (`no_std`, Rust) local agent library for ESP32-S3 and ESP32-S31.
 
-The goal of `esp-agent` is to run a small agent entirely on the chip, with
-prompts, skills, and context embedded in the firmware image and nothing sent to
-the cloud. It is a library that you add to your own ESP firmware project. The
-project is at an early stage: today it ships the first building block, an
-on-device text embedder, plus an example firmware with a semantic search
-console.
+`esp-agent` runs a small agent entirely on the chip, with nothing sent to the
+cloud. It uses static embedding models, so it matches text but does not
+generate it. Today it can:
+
+- search stored texts by meaning;
+- recognize the commands your firmware declares and hand them to it to run;
+- ask a question when a request is ambiguous, and remember what the last
+  request referred to.
 
 Each firmware chooses which [static embedding models](#embedding-models) to
 include. The semantic search example embeds `potion-base-2M` and reads
