@@ -115,7 +115,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy
       - name: Enable caching
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install just
@@ -124,8 +124,12 @@ jobs:
           just-version: "1.59.0"
       - name: Build
         run: just build_host
+      - name: Lint benchmarks
+        run: just clippy_bench "-- -D warnings"
       - name: Run tests
         run: just test
+      - name: Test benchmark report
+        run: just test_bench
 
   dependencies:
     name: Dependencies

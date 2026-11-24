@@ -3,6 +3,7 @@ members = ["crates/*", "examples/semantic-search"]
 resolver = "3"
 
 [workspace.dependencies]
+criterion = "0.8"
 critical-section = "1.2"
 esp-agent = { path = "crates/esp-agent" }
 # Exact pin: the expansion of `model!` must match this version of the library.

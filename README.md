@@ -309,6 +309,12 @@ just fmt_check
 just clippy "-- -D warnings"
 just doc
 just test
+just test_bench
+just bench_all
+just bench tokenize
+just bench_smoke
+just bench_report
+just clippy_bench "-- -D warnings"
 just deny
 just scan_secrets
 just check
@@ -318,14 +324,44 @@ just changelog 0.1.0
 ```
 
 For recipes with both chip variants, the unsuffixed recipe runs `_s3` and then `_s31`.
-`build_host` and `test` run on your computer with the standard Rust toolchain.
+`build_host`, `test`, `test_bench`, `clippy_bench`, and the `bench` recipes run on
+your computer with the standard Rust toolchain.
 
 ### Run the quality gate
 
 `just check` is the local quality gate. It checks formatting and runs Clippy and
 rustdoc with warnings denied for each chip. It builds the library for your
-computer with `just build_host`, runs the library tests once on it with
-`just test`, and checks the workspace dependency policy once with `just deny`.
+computer with `just build_host`, lints the benchmarks with `just clippy_bench`,
+runs the library tests and the benchmark report tests once on it with `just test`
+and `just test_bench`, and checks the workspace dependency policy once with
+`just deny`.
+
+### Run the benchmarks
+
+The `esp-agent-bench` crate holds criterion benchmarks that run on your computer
+with the standard Rust toolchain. They use the potion-2M model of the example
+firmware and cover three groups:
+
+- `tokenize`: text normalization and WordPiece encoding.
+- `embed`: turning text into vectors, and mean-pooling token ids.
+- `search`: storing texts and searching them with a `Retriever` and an `Index`.
+
+The benchmark recipes download the potion-2M model on first use, like `just test`.
+The numbers come from a computer, so they do not match the chip. Use them to
+tell whether a change makes the library faster or slower.
+
+```sh
+just bench_all
+just bench tokenize
+just bench_smoke
+just bench_report
+```
+
+`just bench_all` runs every group, and `just bench <group>` runs one of
+`tokenize`, `embed`, or `search`. `just bench_smoke` runs every benchmark once
+without measuring, to check that they work. `just bench_report` prints the
+results of the last run as a Markdown table. The HTML report is in
+`target/criterion/report/index.html`.
 
 ### Enable the Git hooks
 
@@ -355,8 +391,14 @@ GitHub Actions provides:
 
 - A build and Clippy check for each chip.
 - Formatting, documentation, and dependency-policy checks.
-- A library build and the library tests on a regular computer (Linux), with
-  the standard Rust toolchain.
+- A library build, the library tests, a lint of the benchmarks, and the
+  benchmark report tests on a regular computer (Linux), with the standard Rust
+  toolchain.
+- Benchmarks on a regular computer for every pull request and every push to
+  `main`, also started by hand. The criterion report is uploaded as the
+  `criterion-report` artifact for 30 days, and the results are written to the job
+  summary. On pull requests from this repository the workflow also posts the
+  numbers as one comment that each push updates.
 - TruffleHog secret scanning.
 - zizmor workflow-security auditing.
 
