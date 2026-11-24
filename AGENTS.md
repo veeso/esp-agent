@@ -68,9 +68,11 @@ keep building for the host target as well as for both chips.
   `search`), and `src/report.rs` renders the criterion results as Markdown for the
   `src/bin/bench_report.rs` binary.
 - `crates/esp-agent/tests/fixtures/` holds the tiny model folders the integration tests embed.
-- `examples/semantic-search/` is the example firmware crate:
-  `src/main.rs` is its entry point, `src/console.rs` is the sans-IO serial
-  console, `model/` holds the potion-2M model downloaded by
+- `examples/semantic-search/` contains two firmware binaries. The entry points
+  are `src/main.rs` for `semantic-search` and `src/home_assistant.rs` for
+  `home-assistant`. Both use `src/board.rs` for board initialization and
+  `src/console.rs` for the sans-IO serial console. `model/` holds the
+  potion-2M model downloaded by
   `just download_test_model` (it is not tracked), `build.rs` configures the
   linker, and `ld/esp32s31/` holds the ESP32-S31 linker scripts.
 - Use `module_name.rs`; never introduce `mod.rs`.
@@ -85,9 +87,9 @@ keep building for the host target as well as for both chips.
 - Check the `generator parameters:` comments in `examples/semantic-search/src/main.rs` before
   changing code that depends on selected generation options.
 - Avoid `std`; use `core` and embedded-friendly crates.
-- `alloc` is enabled. The example initializes the heap in
-  `examples/semantic-search/src/main.rs` with
-  `esp_alloc::heap_allocator!`; adjust the heap size there if allocations fail.
+- `alloc` is enabled. If allocations fail, adjust the
+  `esp_alloc::heap_allocator!` size for the target chip in
+  `examples/semantic-search/src/board.rs`.
 - `.cargo/config.toml` contains the generated target, runner, build flags, and
   `[env]` defaults. Espressif crates expose additional configuration through
   environment variables; use `esp-config` to inspect and set those options. The

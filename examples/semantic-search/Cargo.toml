@@ -1,6 +1,7 @@
 [package]
 name = "semantic-search"
 version = "0.1.0"
+default-run = "semantic-search"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
@@ -34,3 +35,11 @@ esp-bootloader-esp-idf = { workspace = true, features = ["log-04"] }
 esp-hal = { workspace = true, features = ["log-04"] }
 esp-println = { workspace = true, features = ["log-04"] }
 log = { workspace = true }
+
+[[bin]]
+name = "home-assistant"
+path = "src/home_assistant.rs"
+
+[[bin]]
+name = "semantic-search"
+path = "src/main.rs"

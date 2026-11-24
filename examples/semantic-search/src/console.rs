@@ -31,10 +31,29 @@ pub enum Event {
     Submit,
 }
 
+/// A submitted line and whether the editor retained every byte.
+#[derive(Debug)]
+pub enum SubmittedLine {
+    /// The entire line fit in the input buffer.
+    Complete(String),
+    /// The line exceeded the buffer. Only the retained text is available.
+    Truncated(String),
+}
+
+impl SubmittedLine {
+    /// Returns the text retained by the editor.
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Complete(text) | Self::Truncated(text) => text,
+        }
+    }
+}
+
 /// Accumulates bytes into a line, handling backspace and both `\r` and `\n` terminators.
 #[derive(Debug, Default)]
 pub struct LineEditor {
     buf: Vec<u8>,
+    truncated: bool,
     after_carriage_return: bool,
 }
 
@@ -58,12 +77,20 @@ impl LineEditor {
             LINE_FEED if after_carriage_return => Event::Ignored,
             LINE_FEED => Event::Submit,
             BACKSPACE | DELETE => self.erase_last_char(),
-            KILL_LINE if self.buf.is_empty() => Event::Ignored,
             KILL_LINE => {
-                self.buf.clear();
-                Event::Kill
+                self.truncated = false;
+                if self.buf.is_empty() {
+                    Event::Ignored
+                } else {
+                    self.buf.clear();
+                    Event::Kill
+                }
             }
-            byte if byte.is_ascii_control() || self.buf.len() >= MAX_LINE_BYTES => Event::Ignored,
+            byte if byte.is_ascii_control() => Event::Ignored,
+            _ if self.buf.len() >= MAX_LINE_BYTES => {
+                self.truncated = true;
+                Event::Ignored
+            }
             byte => {
                 self.buf.push(byte);
                 Event::Echo(byte)
@@ -74,10 +101,14 @@ impl LineEditor {
     /// Returns the line typed so far and starts a new one.
     ///
     /// Bytes that are not valid UTF-8 are replaced with `U+FFFD`.
-    pub fn take_line(&mut self) -> String {
+    pub fn take_line(&mut self) -> SubmittedLine {
         let line = String::from_utf8_lossy(&self.buf).into_owned();
         self.buf.clear();
-        line
+        if core::mem::take(&mut self.truncated) {
+            SubmittedLine::Truncated(line)
+        } else {
+            SubmittedLine::Complete(line)
+        }
     }
 
     fn erase_last_char(&mut self) -> Event {
