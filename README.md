@@ -110,6 +110,64 @@ command. `turn` returns `Executed`, `Failed`, `Clarify`, `NeedTarget`, or
 An agent owns its conversation, so it is no longer `Copy`, and it is `Clone`
 only when its payload is. Each clone has an independent conversation.
 
+#### Declare devices and commands
+
+Instead of writing the handler, declare your devices with `targets!` and the
+commands on your action enum with `#[derive(TurnCommands)]`. The ordinary
+adapter then forwards each parsed action to your firmware:
+
+```rust
+static LAMPS: TargetCatalog = targets! {
+    device Desk = 1, "desk lamp" { replies ["desk", "desk one"]; }
+    device Floor = 2, "floor lamp" { replies ["floor", "floor one"]; }
+    choose "lamp" from [Desk, Floor];
+    group ["living room", "living room lights"] = [Desk, Floor];
+};
+
+#[derive(TurnCommands)]
+#[commands(previous = "it")]
+enum Action {
+    #[command("turn on {target}", "turn {target} on")]
+    TurnOn,
+    #[command("dim {target} to {level} percent", "dim {target} to {level}%")]
+    SetBrightness { level: Percent },
+}
+
+let mut handler = Action::handler(&LAMPS, |action, ids| home.dispatch(action, ids));
+let outcome = agent.turn("Dim the lamp to 37%", &mut handler);
+```
+
+"Lamp" is a `choose` phrase, so the agent asks which lamp and `desk one` is a
+reply alias that only answers that question. "Living room lights" is a `group`,
+so one dispatch acts on both lamps. The patterns match the whole line and
+convert each value with its `FromStr`, so "Dim it to 150%" is not a command.
+Both macros check their declarations at build time, and matching borrows the
+input without allocating.
+
+To ask for a value that a command lacks, write the handler by hand and call the
+derived parser from `parse`. The agent owns the question about the target. The
+firmware owns the question about the value, because only it knows the value is
+missing:
+
+```rust
+fn parse<'a>(&self, input: &'a str, _suggested: Option<&Action>) -> Option<Command<'a, Action>> {
+    Action::parse_command(input)
+        .or_else(|| begin_dim(input))
+        .or_else(|| {
+            let lamp = self.awaiting_brightness?;
+            Some(Command {
+                action: Action::SetBrightness {
+                    level: parse_level(input)?,
+                },
+                target: TargetSelector::Explicit(LAMPS.name(lamp)?),
+            })
+        })
+}
+```
+
+See the [Turns](https://github.com/veeso/esp-agent/blob/main/docs/src/turns.md) guide and the
+[macro reference](https://github.com/veeso/esp-agent/blob/main/docs/src/reference/turn-macros.md) for the complete example.
+
 A firmware loop can prompt without allocating by keeping one `Scratch` and one
 hits vector, and reusing them for every prompt:
 
@@ -199,14 +257,14 @@ Rebuild any stored embeddings when you switch models.
 - `crates/esp-agent/src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`). Its settings live in `EmbedderConfig`.
 - `crates/esp-agent/src/index.rs` is `Index`, a brute-force in-memory vector index: one contiguous buffer of floats plus a payload per entry, searched by cosine similarity.
 - `crates/esp-agent/src/knowledge.rs` is `Knowledge`, the store that pairs an `Embedder` with an `Index` and keeps the original texts.
-- `crates/esp-agent/src/agent.rs` is `Agent`, which borrows a `Knowledge` store, answers prompts with the closest stored texts, and runs conversation turns. `crates/esp-agent/src/context.rs` holds its bounded conversation memory and the `TurnHandler` types. `crates/esp-agent/src/retriever.rs` is the internal search it forwards to.
+- `crates/esp-agent/src/agent.rs` is `Agent`, which borrows a `Knowledge` store, answers prompts with the closest stored texts, and runs conversation turns. `crates/esp-agent/src/context.rs` holds its bounded conversation memory and the `TurnHandler` types. `crates/esp-agent/src/catalog.rs` is `TargetCatalog`, the read-only device catalog that `targets!` builds, and `crates/esp-agent/src/commands.rs` is the `TurnCommands` trait, its handler adapter, and the matching helpers the derive uses. `crates/esp-agent-macros/src/catalog.rs` and `commands.rs` compile the two declarations while the firmware builds. `crates/esp-agent/src/retriever.rs` is the internal search it forwards to.
 - `examples/semantic-search` is an example firmware. It embeds the potion-2M
   model from `examples/semantic-search/model/` (downloaded, not tracked by
   git), indexes sample sentences in a
   `Knowledge` store, and runs an interactive serial search console that prints the
   search time and ranked matches. The sans-IO line editor for the console lives in its
   `src/console.rs`. A second binary, `home-assistant`, drives two simulated lamps
-  through `Agent::turn`. Its catalog and vocabulary live in `src/home.rs`, and
+  through `Agent::turn`. Its catalog, vocabulary, and brightness question live in `src/home.rs`, and
   the serial and chip setup both binaries share lives in `src/board.rs`.
 
 The tokenizer produces the same token IDs as [`statembed`](https://github.com/AstraBert/statembed) on inputs covering accents, CJK, emoji, control characters, and truncation.
@@ -266,7 +324,8 @@ just coverage
 - `espflash` 4.6.0 or newer.
 - [just](https://just.systems) for task execution.
 - [dprint](https://dprint.dev) 0.56.1 and nightly rustfmt for formatting.
-- [mdBook](https://rust-lang.github.io/mdBook/) 0.5.4 for the documentation website.
+- [mdBook](https://rust-lang.github.io/mdBook/) 0.5.4 and
+  [mdbook-mermaid](https://github.com/badboy/mdbook-mermaid) 0.17.1 for the documentation website.
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) for dependency
   policy.
 - [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) for test coverage.
@@ -286,6 +345,7 @@ On macOS with Homebrew, install the packaged tools with:
 ```sh
 brew install cargo-deny cargo-llvm-cov dprint git-cliff just mdbook shellcheck trufflehog zizmor
 rustup toolchain install nightly --profile minimal --component rustfmt
+cargo install mdbook-mermaid --version 0.17.1 --locked
 ```
 
 ## Run the example
@@ -369,18 +429,33 @@ simulated state and drives no hardware. The agent keeps up to two targets. Type
 this at the prompt:
 
 ```text
-> Turn on the lamp
+> Dim the lamp to 37%
 Which lamp, the desk lamp or the floor lamp?
 > The desk one
+The desk lamp is at 37 percent.
+> Turn it on
 The desk lamp is on.
-> Dim it to 30 percent
-The desk lamp is at 30 percent.
 > Turn on the living room lights
 The living room lights are on.
-> Dim it to 30 percent
+> Dim it to 12%
 Which lamp, the desk lamp or the floor lamp?
-> The floor one
-The floor lamp is at 30 percent.
+> Floor
+The floor lamp is at 12 percent.
+```
+
+The firmware can also ask for a missing value. After "Dim the lamp" the agent
+asks which lamp, and the firmware then asks for the brightness. Any new command
+cancels that question:
+
+```text
+> Dim the lamp
+Which lamp, the desk lamp or the floor lamp?
+> The desk one
+To what brightness?
+> 150 percent
+To what brightness?
+> 37 percent
+The desk lamp is at 37 percent.
 ```
 
 "It" means the last lamp only when that command acted on a single lamp. After

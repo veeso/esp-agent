@@ -88,6 +88,44 @@
 //! The memory is part of the agent. An agent is therefore `Clone` only when its payload is,
 //! each clone has its own conversation, and an agent is no longer `Copy`.
 //!
+//! # Declaring devices and commands
+//!
+//! A handler can be written by hand, or declared. [`targets!`] builds a [`TargetCatalog`]
+//! of devices, the phrases that name them, and the replies that pick one out of a
+//! question. `#[derive(TurnCommands)]` turns `#[command("..")]` patterns on an action enum
+//! into [`TurnCommands::parse_command`]. [`TurnCommands::handler`] joins the two with a
+//! callback that runs the action on the firmware's devices:
+//!
+//! ```rust,ignore
+//! use esp_agent::{TargetCatalog, TurnCommands, targets};
+//!
+//! static LAMPS: TargetCatalog = targets! {
+//!     device Desk = 1, "desk lamp" { replies ["desk", "desk one"]; }
+//!     device Floor = 2, "floor lamp" { replies ["floor", "floor one"]; }
+//!     choose "lamp" from [Desk, Floor];
+//!     group ["living room"] = [Desk, Floor];
+//! };
+//!
+//! #[derive(TurnCommands)]
+//! #[commands(previous = "it")]
+//! enum Action {
+//!     #[command("turn on {target}", "turn {target} on")]
+//!     TurnOn,
+//!     #[command("dim {target} to {level}%")]
+//!     SetBrightness { level: Percent },
+//! }
+//!
+//! let mut handler = Action::handler(&LAMPS, |action, ids| home.dispatch(action, ids));
+//! let outcome = agent.turn("Dim it to 12%", &mut handler);
+//! ```
+//!
+//! The macros and the handler are independent. A handwritten [`TurnHandler`] can call
+//! [`TurnCommands::parse_command`] from its `parse`, try input of its own after it, and
+//! use a catalog for the two lookups. That is the way to ask a question the agent does not
+//! manage, such as the value a command is missing. The firmware example in the repository
+//! asks "To what brightness?" this way. Parsing borrows the input and allocates nothing,
+//! and both macros check their declarations while the firmware compiles.
+//!
 //! # Reusing buffers
 //!
 //! The one-call methods allocate fresh buffers on every call. A firmware loop can keep a
@@ -119,6 +157,8 @@
 extern crate alloc;
 
 mod agent;
+mod catalog;
+mod commands;
 mod context;
 mod embedder;
 mod index;
@@ -131,9 +171,15 @@ mod tokenizer;
 #[doc(inline)]
 pub use agent::{Agent, AgentBuilder, AgentError};
 #[doc(inline)]
+pub use catalog::TargetCatalog;
+#[doc(inline)]
+pub use commands::TurnCommands;
+#[doc(inline)]
 pub use context::{Command, TargetId, TargetMatch, TargetSelector, TurnHandler, TurnOutcome};
 #[doc(inline)]
 pub use embedder::{Embedder, EmbedderConfig, cosine_similarity};
+#[doc(inline)]
+pub use esp_agent_macros::TurnCommands;
 #[doc(inline)]
 pub use index::{Hit, Index};
 #[doc(inline)]
@@ -182,10 +228,61 @@ macro_rules! model {
     }};
 }
 
-/// Support items for the expansion of [`model!`]. Not part of the public API.
+/// Declares the devices of a firmware and the phrases that name them, and evaluates to a
+/// [`TargetCatalog`].
+///
+/// The body holds three kinds of declaration, in any order, each ending in a semicolon
+/// except `device`, whose body is braced:
+///
+/// ```rust,ignore
+/// use esp_agent::{TargetCatalog, targets};
+///
+/// static LAMPS: TargetCatalog = targets! {
+///     device Desk = 1, "desk lamp" {
+///         replies ["desk", "desk one"];
+///     }
+///     device Floor = 2, "floor lamp" {
+///         replies ["floor", "floor one"];
+///     }
+///     choose "lamp" from [Desk, Floor];
+///     group ["living room", "living room lights"] = [Desk, Floor];
+/// };
+/// ```
+///
+/// * `device Name = id, "display name" { replies [..]; }` declares a device with a stable
+///   [`TargetId`], a display name that also selects it in a command, and reply aliases
+///   that only pick it out of a clarification. Two devices can share a reply alias.
+/// * `choose "phrase" from [..];` makes the phrase ambiguous between its members, so the
+///   agent asks the user to choose one.
+/// * `group ["phrase", ..] = [..];` makes each phrase select all its members at once.
+///
+/// The declarations are checked while the firmware compiles. Duplicate identifiers or
+/// device names, selectors that collide after normalization, empty selectors, and members
+/// that name no declared device are compile errors that point at the declaration. The
+/// expansion is a constant expression, so it can initialize a `static`.
+#[macro_export]
+macro_rules! targets {
+    ($($input:tt)*) => {{
+        use $crate::_private::{RawCatalog, RawDevice, RawSelector};
+        $crate::_private::catalog($crate::_private::compile_targets!($($input)*))
+    }};
+}
+
+/// Support items for the expansion of [`model!`] and [`targets!`]. Not part of the public
+/// API.
 #[doc(hidden)]
 pub mod _private {
-    pub use esp_agent_macros::compile_model;
+    pub use esp_agent_macros::{compile_model, compile_targets};
+
+    pub use crate::catalog::{RawCatalog, RawDevice, RawSelector};
+    pub use crate::commands::{CaptureMatch, selector, split, trim_sentence};
+
+    /// Builds a [`TargetCatalog`](crate::TargetCatalog) from the declarations `targets!`
+    /// compiled.
+    #[must_use]
+    pub const fn catalog(raw: RawCatalog) -> crate::TargetCatalog {
+        crate::TargetCatalog::from_raw(raw)
+    }
 
     /// The pieces of a compiled model folder, as laid out by `model!`.
     #[derive(Debug)]

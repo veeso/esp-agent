@@ -1,5 +1,7 @@
 //! Compile-time model embedding for `esp-agent`.
 
+mod catalog;
+mod commands;
 mod compile;
 mod expand;
 
@@ -7,6 +9,22 @@ use std::path::PathBuf;
 
 use proc_macro::TokenStream;
 use quote::quote;
+
+/// Compiles the declarations of `targets!` into a `RawCatalog` expression.
+#[proc_macro]
+pub fn compile_targets(input: TokenStream) -> TokenStream {
+    catalog::expand(input.into())
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
+
+/// Derives the parser of the commands that an action enum accepts.
+#[proc_macro_derive(TurnCommands, attributes(command, commands))]
+pub fn derive_turn_commands(input: TokenStream) -> TokenStream {
+    commands::expand(input.into())
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
 
 /// Compiles the fields of the embedding model for the library macro.
 #[proc_macro]

@@ -5,8 +5,12 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write as _;
+use core::str::FromStr;
 
-use esp_agent::{Agent, Command, TargetId, TargetMatch, TargetSelector, TurnHandler, TurnOutcome};
+use esp_agent::{
+    Agent, Command, TargetCatalog, TargetId, TargetMatch, TargetSelector, TurnCommands,
+    TurnHandler, TurnOutcome, targets,
+};
 
 use crate::console::SubmittedLine;
 
@@ -15,20 +19,79 @@ pub const DESK: TargetId = 1;
 /// Identifier of the floor lamp in the catalog.
 pub const FLOOR: TargetId = 2;
 
+// ANCHOR: catalog
+/// The lamps, the phrases that name them, and the replies that pick one out of a question.
+static LAMPS: TargetCatalog = targets! {
+    device Desk = 1, "desk lamp" {
+        replies ["desk", "desk one"];
+    }
+    device Floor = 2, "floor lamp" {
+        replies ["floor", "floor one"];
+    }
+    choose "lamp" from [Desk, Floor];
+    group ["living room", "living room lights"] = [Desk, Floor];
+};
+// ANCHOR_END: catalog
+
 // ANCHOR: examples
-/// Texts registered in the knowledge store, one per supported action.
+/// Knowledge store examples for turning a lamp on and setting its brightness.
 pub const EXAMPLES: [(&str, Action); 2] = [
     ("Turn on the lamp", Action::TurnOn),
-    ("Dim the lamp to 30 percent", Action::SetBrightness(30)),
+    (
+        "Dim the lamp to 30 percent",
+        Action::SetBrightness {
+            level: Percent::new(30),
+        },
+    ),
 ];
 
 /// What the user can ask a lamp to do, with the arguments read from the original input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TurnCommands)]
+#[commands(previous = "it")]
 pub enum Action {
     /// Switch the lamp on.
+    #[command("turn on {target}", "turn {target} on")]
     TurnOn,
-    /// Set the brightness, in percent from 0 to 100.
-    SetBrightness(u8),
+    /// Set the brightness.
+    #[command("dim {target} to {level} percent", "dim {target} to {level}%")]
+    SetBrightness {
+        /// The new brightness.
+        level: Percent,
+    },
+    /// Ask which brightness the user wants. The firmware builds it from a shorter command.
+    BeginDim,
+}
+
+/// A brightness in percent, from 0 to 100.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Percent(u8);
+
+impl Percent {
+    /// Creates a brightness at compile time.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `value` is above 100.
+    pub const fn new(value: u8) -> Self {
+        assert!(value <= 100, "a percentage is at most 100");
+        Self(value)
+    }
+}
+
+impl FromStr for Percent {
+    type Err = ();
+
+    /// Accepts decimal digits only, from 0 through 100.
+    fn from_str(text: &str) -> Result<Self, ()> {
+        if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(());
+        }
+        text.parse::<u8>()
+            .ok()
+            .filter(|value| *value <= 100)
+            .map(Self)
+            .ok_or(())
+    }
 }
 // ANCHOR_END: examples
 
@@ -39,8 +102,8 @@ pub enum HomeError {
     NoTarget,
     /// The identifier is not in the catalog.
     UnknownTarget(TargetId),
-    /// The brightness is above 100 percent.
-    InvalidBrightness(u8),
+    /// The brightness question needs exactly one lamp.
+    NameOneLamp,
 }
 
 /// A command that ran, with the targets it ran on.
@@ -50,21 +113,20 @@ pub struct Done {
     targets: Vec<TargetId>,
 }
 
-/// The state of one simulated lamp.
+/// The state of one simulated lamp. Its name and replies live in the catalog.
 #[derive(Debug, Clone, Copy)]
 struct Lamp {
     id: TargetId,
-    name: &'static str,
-    /// Phrases that pick this lamp out of a clarification, compared ignoring case.
-    replies: &'static [&'static str],
     on: bool,
     brightness: u8,
 }
 
-/// The simulated home that the agent controls.
+/// The simulated home that one conversation controls.
 #[derive(Debug)]
 pub struct Home {
     lamps: [Lamp; 2],
+    /// The lamp whose brightness the user was asked for, while the question is open.
+    awaiting_brightness: Option<TargetId>,
 }
 
 impl Home {
@@ -74,31 +136,16 @@ impl Home {
             lamps: [
                 Lamp {
                     id: DESK,
-                    name: "desk lamp",
-                    replies: &[
-                        "the desk one",
-                        "desk one",
-                        "the desk lamp",
-                        "desk lamp",
-                        "desk",
-                    ],
                     on: false,
                     brightness: 100,
                 },
                 Lamp {
                     id: FLOOR,
-                    name: "floor lamp",
-                    replies: &[
-                        "the floor one",
-                        "floor one",
-                        "the floor lamp",
-                        "floor lamp",
-                        "floor",
-                    ],
                     on: false,
                     brightness: 100,
                 },
             ],
+            awaiting_brightness: None,
         }
     }
 
@@ -108,10 +155,15 @@ impl Home {
         agent: &mut Agent<'_, Action>,
         line: &SubmittedLine,
     ) -> Option<String> {
+        let input = line.text().trim_start();
+        // A new command abandons the question even if the editor truncated the line.
+        if self.awaiting_brightness.is_some() && starts_like_command(input) {
+            self.awaiting_brightness = None;
+        }
         if matches!(line, SubmittedLine::Truncated(_)) {
             return Some(String::from("Please enter a shorter, complete command."));
         }
-        let input = line.text().trim();
+        let input = input.trim_end();
         if input.is_empty() {
             return None;
         }
@@ -128,14 +180,6 @@ impl Home {
         self.lamps.iter().find(|lamp| lamp.id == id)
     }
 
-    fn lamp_mut(&mut self, id: TargetId) -> Option<&mut Lamp> {
-        self.lamps.iter_mut().find(|lamp| lamp.id == id)
-    }
-
-    fn all_ids(&self) -> Vec<TargetId> {
-        self.lamps.iter().map(|lamp| lamp.id).collect()
-    }
-
     /// Words the user can say for a target, such as "the desk lamp".
     fn name_of(&self, targets: &[TargetId]) -> String {
         if targets.len() == self.lamps.len()
@@ -149,7 +193,7 @@ impl Home {
                 names.push_str(" and ");
             }
             names.push_str("the ");
-            names.push_str(self.lamp(*id).map_or("device", |lamp| lamp.name));
+            names.push_str(LAMPS.name(*id).unwrap_or("device"));
         }
         names
     }
@@ -159,22 +203,26 @@ impl Home {
         let mut reply = String::new();
         match outcome {
             TurnOutcome::Executed(done) => {
-                let subject = capitalize(&self.name_of(&done.targets));
+                let subject = || capitalize(&self.name_of(&done.targets));
                 let verb = if done.targets.len() == 1 { "is" } else { "are" };
                 let _ = match done.action {
-                    Action::TurnOn => write!(reply, "{subject} {verb} on."),
-                    Action::SetBrightness(percent) => {
-                        write!(reply, "{subject} {verb} at {percent} percent.")
+                    Action::TurnOn => write!(reply, "{subject} {verb} on.", subject = subject()),
+                    Action::SetBrightness { level } => {
+                        write!(
+                            reply,
+                            "{subject} {verb} at {level} percent.",
+                            subject = subject(),
+                            level = level.0
+                        )
                     }
+                    Action::BeginDim => return String::from(BRIGHTNESS_QUESTION),
                 };
             }
             TurnOutcome::Failed(error) => {
                 let _ = match error {
                     HomeError::NoTarget => write!(reply, "That command has no lamp."),
                     HomeError::UnknownTarget(id) => write!(reply, "I do not know device {id}."),
-                    HomeError::InvalidBrightness(percent) => {
-                        write!(reply, "{percent} percent is not a valid brightness.")
-                    }
+                    HomeError::NameOneLamp => write!(reply, "Please name one lamp to dim."),
                 };
             }
             TurnOutcome::Clarify(choices) => {
@@ -190,13 +238,16 @@ impl Home {
                     let _ = write!(
                         reply,
                         "the {name}",
-                        name = self.lamp(*id).map_or("device", |lamp| lamp.name)
+                        name = LAMPS.name(*id).unwrap_or("device")
                     );
                 }
                 reply.push('?');
             }
             TurnOutcome::NeedTarget => {
                 reply.push_str("Please give the full command and name a lamp.")
+            }
+            TurnOutcome::Unrecognized if self.awaiting_brightness.is_some() => {
+                reply.push_str(BRIGHTNESS_QUESTION);
             }
             TurnOutcome::Unrecognized => {
                 reply.push_str("Sorry, I did not understand. Try \"Turn on the lamp\".");
@@ -205,6 +256,49 @@ impl Home {
         reply
     }
 }
+
+/// What the firmware asks after "dim <lamp>".
+const BRIGHTNESS_QUESTION: &str = "To what brightness?";
+
+// ANCHOR: brightness_followup
+/// Reads a complete command, or the short "dim <lamp>" that starts the brightness question.
+fn parse_command(input: &str) -> Option<Command<'_, Action>> {
+    Action::parse_command(input).or_else(|| begin_dim(input))
+}
+
+/// Recognizes "dim <lamp>" when the lamp is a known selector or the word "it".
+fn begin_dim(input: &str) -> Option<Command<'_, Action>> {
+    let rest = strip_prefix_ignore_case(trim_sentence(input), "dim ")?.trim();
+    let target = if rest.eq_ignore_ascii_case("it") {
+        TargetSelector::Previous
+    } else if LAMPS.contains_selector(rest) {
+        TargetSelector::Explicit(rest)
+    } else {
+        return None;
+    };
+    Some(Command {
+        action: Action::BeginDim,
+        target,
+    })
+}
+
+/// Tells whether the line opens with a command verb, whether or not it is a valid command.
+fn starts_like_command(input: &str) -> bool {
+    ["dim ", "turn "]
+        .iter()
+        .any(|verb| strip_prefix_ignore_case(input, verb).is_some())
+}
+
+/// Reads a bare brightness such as "37 percent" or "37%".
+fn parse_level(input: &str) -> Option<Percent> {
+    let input = trim_sentence(input);
+    strip_suffix_ignore_case(input, " percent")
+        .or_else(|| strip_suffix_ignore_case(input, "%"))?
+        .trim()
+        .parse()
+        .ok()
+}
+// ANCHOR_END: brightness_followup
 
 // ANCHOR: handler
 impl TurnHandler<Action> for Home {
@@ -216,48 +310,23 @@ impl TurnHandler<Action> for Home {
         input: &'a str,
         _suggested: Option<&Action>,
     ) -> Option<Command<'a, Action>> {
-        let input = trim_sentence(input);
-        if let Some(target) = strip_prefix_ignore_case(input, "turn on ") {
-            return Some(Command {
-                action: Action::TurnOn,
-                target: parse_selector(target),
-            });
-        }
-        let rest = strip_prefix_ignore_case(input, "dim ")?;
-        let rest = strip_suffix_ignore_case(rest, " percent")
-            .or_else(|| strip_suffix_ignore_case(rest, "%"))?;
-        let (target, percent) = rsplit_once_ignore_case(rest, " to ")?;
-        let percent = percent.trim().parse::<u8>().ok().filter(|n| *n <= 100)?;
-        Some(Command {
-            action: Action::SetBrightness(percent),
-            target: parse_selector(target),
+        parse_command(input).or_else(|| {
+            let lamp = self.awaiting_brightness?;
+            Some(Command {
+                action: Action::SetBrightness {
+                    level: parse_level(input)?,
+                },
+                target: TargetSelector::Explicit(LAMPS.name(lamp)?),
+            })
         })
     }
 
     fn resolve_targets(&self, selector: &str) -> TargetMatch {
-        let selector = trim_sentence(selector);
-        let selector = strip_prefix_ignore_case(selector, "the ").unwrap_or(selector);
-        let is = |name: &str| selector.eq_ignore_ascii_case(name);
-        if is("lamp") {
-            TargetMatch::Ambiguous(self.all_ids())
-        } else if is("desk lamp") {
-            TargetMatch::Resolved(Vec::from([DESK]))
-        } else if is("floor lamp") {
-            TargetMatch::Resolved(Vec::from([FLOOR]))
-        } else if is("living room lights") || is("living room") {
-            TargetMatch::Resolved(self.all_ids())
-        } else {
-            TargetMatch::Missing
-        }
+        LAMPS.resolve_targets(selector)
     }
 
     fn matches_target(&self, target: TargetId, reply: &str) -> bool {
-        let reply = trim_sentence(reply);
-        self.lamp(target).is_some_and(|lamp| {
-            lamp.replies
-                .iter()
-                .any(|phrase| reply.eq_ignore_ascii_case(phrase))
-        })
+        LAMPS.matches_target(target, reply)
     }
 
     fn dispatch(&mut self, action: Action, targets: &[TargetId]) -> Result<Done, HomeError> {
@@ -267,18 +336,23 @@ impl TurnHandler<Action> for Home {
         if let Some(unknown) = targets.iter().find(|id| self.lamp(**id).is_none()) {
             return Err(HomeError::UnknownTarget(*unknown));
         }
-        if let Action::SetBrightness(percent) = action
-            && percent > 100
-        {
-            return Err(HomeError::InvalidBrightness(percent));
-        }
-        for id in targets {
-            if let Some(lamp) = self.lamp_mut(*id) {
+        if action == Action::BeginDim {
+            let &[lamp] = targets else {
+                return Err(HomeError::NameOneLamp);
+            };
+            self.awaiting_brightness = Some(lamp);
+        } else {
+            for lamp in self
+                .lamps
+                .iter_mut()
+                .filter(|lamp| targets.contains(&lamp.id))
+            {
                 match action {
-                    Action::TurnOn => lamp.on = true,
-                    Action::SetBrightness(percent) => lamp.brightness = percent,
+                    Action::SetBrightness { level } => lamp.brightness = level.0,
+                    Action::TurnOn | Action::BeginDim => lamp.on = true,
                 }
             }
+            self.awaiting_brightness = None;
         }
         Ok(Done {
             action,
@@ -287,15 +361,6 @@ impl TurnHandler<Action> for Home {
     }
 }
 // ANCHOR_END: handler
-
-fn parse_selector(text: &str) -> TargetSelector<'_> {
-    let target = text.trim();
-    if target.eq_ignore_ascii_case("it") {
-        TargetSelector::Previous
-    } else {
-        TargetSelector::Explicit(target)
-    }
-}
 
 /// Removes surrounding whitespace and trailing sentence punctuation.
 fn trim_sentence(text: &str) -> &str {
@@ -313,16 +378,6 @@ fn strip_suffix_ignore_case<'a>(text: &'a str, suffix: &str) -> Option<&'a str> 
     text.get(start..)?
         .eq_ignore_ascii_case(suffix)
         .then(|| &text[..start])
-}
-
-fn rsplit_once_ignore_case<'a>(text: &'a str, separator: &str) -> Option<(&'a str, &'a str)> {
-    let start = (0..=text.len().checked_sub(separator.len())?)
-        .rev()
-        .find(|start| {
-            text.get(*start..*start + separator.len())
-                .is_some_and(|part| part.eq_ignore_ascii_case(separator))
-        })?;
-    Some((&text[..start], &text[start + separator.len()..]))
 }
 
 fn capitalize(text: &str) -> String {

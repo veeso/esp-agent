@@ -17,6 +17,12 @@ preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/veeso/esp-agent"
 edit-url-template = "https://github.com/veeso/esp-agent/edit/main/docs/{path}"
 site-url = "/esp-agent/"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
 [output.html.playground]
 runnable = false
+
+[preprocessor]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
