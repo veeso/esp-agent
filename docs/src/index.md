@@ -52,7 +52,9 @@ let best = agent.prompt("Which city is France's capital?", 1);
 ```
 
 To handle commands, enable conversation memory and pass your `TurnHandler`
-implementation as `home`. The [Turns](turns.md) guide shows a complete handler.
+implementation as `home`. The [Turns](turns.md) guide shows a complete handler,
+and the [turn macros](reference/turn-macros.md) declare devices and commands
+instead of writing one.
 
 ```rust
 let mut agent = Agent::builder(POTION, &knowledge)

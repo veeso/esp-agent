@@ -60,10 +60,18 @@ Each agent owns its conversation state. It can be cloned when its payload is
 `Clone`, and each clone keeps an independent conversation. `Agent` never
 implements `Copy`.
 
+## Declare the vocabulary instead
+
+You do not need to write the handler by hand. `targets!` declares the devices
+and the phrases that name them, and `#[derive(TurnCommands)]` declares the
+commands on your action enum. The [turn macros reference](reference/turn-macros.md)
+covers every rule. The home assistant firmware declares both.
+
 ## Example with the home assistant
 
 The `home-assistant` firmware controls two simulated lamps. Its knowledge
-store holds one example for each supported action.
+store holds examples for turning a lamp on and setting its brightness. For
+“Dim the lamp”, the firmware constructs `BeginDim` directly.
 
 ```rust
 {{#include ../../examples/semantic-search/src/home.rs:examples}}
@@ -75,8 +83,15 @@ The firmware embeds the examples and gives the agent room for two targets.
 {{#include ../../examples/semantic-search/src/home_assistant.rs:agent_setup}}
 ```
 
-The handler reads brightness and target names from the user's input. It treats
-“lamp” as ambiguous and “living room lights” as a group containing both lamps.
+The catalog lists the lamps. “Lamp” is ambiguous and “living room lights” is a
+group containing both lamps.
+
+```rust
+{{#include ../../examples/semantic-search/src/home.rs:catalog}}
+```
+
+The handler forwards parsing and lookups to the declarations. It also keeps
+one firmware-owned question, described below.
 
 ```rust
 {{#include ../../examples/semantic-search/src/home.rs:handler}}
@@ -90,22 +105,72 @@ just run_s3 home-assistant
 just run_s31 home-assistant
 ```
 
-Try these commands in the serial monitor.
+Try these commands in the serial monitor. The agent asks which lamp, and “it”
+refers to the last lamp that a command acted on.
 
 ```text
-> Turn on the lamp
+> Dim the lamp to 37%
 Which lamp, the desk lamp or the floor lamp?
 > The desk one
+The desk lamp is at 37 percent.
+> Turn it on
 The desk lamp is on.
-> Dim it to 30 percent
-The desk lamp is at 30 percent.
 > Turn on the living room lights
 The living room lights are on.
-> Dim it to 30 percent
+> Dim it to 12%
 Which lamp, the desk lamp or the floor lamp?
-> The floor one
-The floor lamp is at 30 percent.
+> Floor
+The floor lamp is at 12 percent.
 ```
+
+## A question that the firmware owns
+
+The agent asks which target a command means. It cannot know that a command is
+missing a value, so your firmware asks for that. “Dim the lamp” is a short
+command that the firmware turns into the unannotated `BeginDim` action. After
+the agent resolves the lamp, dispatching `BeginDim` records the lamp and returns
+a prompt. It changes no hardware.
+
+```rust
+{{#include ../../examples/semantic-search/src/home.rs:brightness_followup}}
+```
+
+The conversation looks like this. An invalid value repeats the question.
+
+```text
+> Dim the lamp
+Which lamp, the desk lamp or the floor lamp?
+> The desk one
+To what brightness?
+> 150 percent
+To what brightness?
+> 37 percent
+The desk lamp is at 37 percent.
+```
+
+The firmware keeps this state next to its devices, one value for each
+conversation, and the question is independent of the agent's memory limit. A
+new command abandons it, even a command that needs a clarification, names an
+unknown lamp, or is malformed such as “Dim the floor lamp to 150%”, so a later “37 percent” cannot revive the old question.
+If the serial line is too long, the firmware asks for a shorter command. A
+command verb in the retained prefix still cancels the brightness question.
+Classifying a new command and clearing the question happens in the firmware's
+`respond` before it calls `Agent::turn`, because `parse` borrows the handler
+immutably.
+
+```text
+> Dim the lamp to 37%
+Which lamp, the desk lamp or the floor lamp?
+> Dim desk lamp
+To what brightness?
+> Turn on the floor lamp
+The floor lamp is on.
+> 37 percent
+Sorry, I did not understand. Try "Turn on the lamp".
+```
+
+A group has no single brightness question, so “Dim the living room lights”
+replies that you must name one lamp. A complete command still works on a group.
 
 The same walkthrough runs on your computer with `just test` in the
 [home assistant integration test][home-assistant-test].

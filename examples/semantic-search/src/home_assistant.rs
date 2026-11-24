@@ -62,6 +62,9 @@ fn main() -> ! {
     println!("  The desk one");
     println!("  Dim it to 30 percent");
     println!("  Turn on the living room lights");
+    println!("  Dim the lamp");
+    println!("  The floor one");
+    println!("  37 percent");
     println!();
 
     let mut home = Home::new();

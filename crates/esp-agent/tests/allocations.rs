@@ -1,61 +1,10 @@
 //! Checks that the reusable-buffer paths do not touch the heap once they are warm.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::cell::Cell;
+#[path = "support/allocation_counter.rs"]
+mod allocation_counter;
 
+use allocation_counter::allocations_during;
 use esp_agent::{Agent, Embedder, Index, Knowledge, Model, Scratch, model};
-
-thread_local! {
-    /// Heap allocations made by the current thread, so parallel tests do not disturb each other.
-    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
-}
-
-/// The system allocator, counting every allocation made through it on the calling thread.
-struct CountingAllocator;
-
-fn count_allocation() {
-    // The slot is gone while a thread shuts down; allocations then go uncounted.
-    let _ = ALLOCATIONS.try_with(|count| count.set(count.get() + 1));
-}
-
-// SAFETY: every method forwards its arguments unchanged to `System`, which upholds the
-// `GlobalAlloc` contract. The counter only touches a thread-local `Cell`, which never allocates.
-unsafe impl GlobalAlloc for CountingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        count_allocation();
-        // SAFETY: the caller upholds the `GlobalAlloc::alloc` contract for `layout`.
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        count_allocation();
-        // SAFETY: the caller upholds the `GlobalAlloc::alloc_zeroed` contract for `layout`.
-        unsafe { System.alloc_zeroed(layout) }
-    }
-
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        count_allocation();
-        // SAFETY: the caller upholds the `GlobalAlloc::realloc` contract for `ptr`, `layout`
-        // and `new_size`, and `ptr` came from this allocator, which forwards to `System`.
-        unsafe { System.realloc(ptr, layout, new_size) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: the caller upholds the `GlobalAlloc::dealloc` contract, and `ptr` came from
-        // this allocator, which forwards to `System`.
-        unsafe { System.dealloc(ptr, layout) }
-    }
-}
-
-#[global_allocator]
-static ALLOCATOR: CountingAllocator = CountingAllocator;
-
-/// Returns how many heap allocations `f` made on the calling thread.
-fn allocations_during(f: impl FnOnce()) -> usize {
-    let before = ALLOCATIONS.with(Cell::get);
-    f();
-    ALLOCATIONS.with(Cell::get) - before
-}
 
 #[test]
 fn counter_sees_allocations() {
@@ -168,4 +117,26 @@ fn search_into_ranks_increasing_scores_in_reused_storage() {
         assert_eq!(allocations, 0);
         assert!(hits.iter().map(|hit| hit.index).eq((1024 - k..1024).rev()));
     }
+}
+
+#[test]
+fn command_matcher_borrows_input_without_heap_allocation() {
+    use esp_agent::{TargetSelector, TurnCommands};
+    #[derive(TurnCommands)]
+    enum Op {
+        #[command("read {target} at {sample}")]
+        Read { sample: u8 },
+    }
+    let line = String::from("read météo at 7");
+    assert_eq!(
+        allocations_during(|| {
+            let cmd = Op::parse_command(std::hint::black_box(&line)).unwrap();
+            assert!(matches!(cmd.action, Op::Read { sample: 7 }));
+            let TargetSelector::Explicit(target) = cmd.target else {
+                panic!()
+            };
+            assert_eq!(target.as_ptr(), line[5..].as_ptr());
+        }),
+        0
+    );
 }
