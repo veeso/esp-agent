@@ -38,18 +38,47 @@
 //! embedder.config_mut().max_length = 128;
 //! let vector = embedder.embed("Qdrant is a vector search engine written in Rust.");
 //! ```
+//!
+//! # Retrieving text
+//!
+//! A [`Retriever`] pairs an [`Embedder`] with an [`Index`]. It stores texts with a
+//! payload each and returns the ones closest to a query:
+//!
+//! ```rust,ignore
+//! use esp_agent::{Embedder, Model, Retriever, model};
+//!
+//! static POTION: Model = model!("model");
+//!
+//! let mut retriever = Retriever::new(Embedder::new(POTION));
+//! retriever.insert("Paris is the capital of France.", 1);
+//! retriever.insert("Water boils at 100 degrees Celsius.", 2);
+//! let best = retriever.search("Which city is France's capital?", 1);
+//! ```
+//!
+//! A search scores every stored entry by cosine similarity, so scores stay correct when
+//! the embedder's `normalize` setting is off. Hits come back by descending score, and
+//! entries with equal scores keep their insertion order. A `k` larger than the number of
+//! entries returns every entry, and a `k` of zero returns none. A query with no known
+//! words scores every entry `0.0`, so the hits are the first entries in insertion order.
+//! An [`Index`] stores vectors you computed yourself in the same way.
 #![no_std]
 
 extern crate alloc;
 
 mod embedder;
+mod index;
 mod model;
+mod retriever;
 mod tokenizer;
 
 #[doc(inline)]
 pub use embedder::{Embedder, EmbedderConfig, cosine_similarity};
 #[doc(inline)]
+pub use index::{Hit, Index};
+#[doc(inline)]
 pub use model::Model;
+#[doc(inline)]
+pub use retriever::{Retriever, TextHit};
 #[doc(inline)]
 pub use tokenizer::{WordPieceTokenizer, normalize};
 

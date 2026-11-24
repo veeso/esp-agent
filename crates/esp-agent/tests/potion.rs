@@ -1,6 +1,15 @@
 //! Checks the potion-2M model of the example firmware end to end.
 
-use esp_agent::{Embedder, EmbedderConfig, Model, WordPieceTokenizer, cosine_similarity, model};
+use esp_agent::{
+    Embedder, EmbedderConfig, Model, Retriever, WordPieceTokenizer, cosine_similarity, model,
+};
+
+#[path = "../../../examples/semantic-search/src/corpus.rs"]
+mod corpus;
+#[path = "../../../examples/semantic-search/src/results.rs"]
+mod results;
+
+use corpus::{CORPUS, TOP_K};
 
 static POTION: Model = model!("../../examples/semantic-search/model");
 
@@ -33,4 +42,34 @@ fn public_types_implement_debug() {
     assert_debug::<EmbedderConfig>();
     assert_debug::<Model>();
     assert_debug::<WordPieceTokenizer>();
+}
+
+#[test]
+fn potion_matches_the_firmware_ranking() {
+    let mut retriever = Retriever::new(Embedder::new(POTION));
+    retriever.extend(CORPUS.map(|text| (text, ())));
+
+    for (question, expected) in [
+        (
+            "Which city is the capital of France?",
+            [(5, "0.763"), (6, "0.123"), (2, "0.017")],
+        ),
+        ("kung sea", [(0, "0.128"), (6, "0.128"), (5, "0.093")]),
+        (
+            "reform clubhouse",
+            [(4, "0.054"), (2, "0.051"), (5, "0.035")],
+        ),
+    ] {
+        let hits = retriever.search(question, TOP_K);
+        let mut lines = Vec::new();
+        results::render_hits(&hits, |line| lines.push(line.to_string()));
+        let expected_lines: Vec<_> = (1..)
+            .zip(expected)
+            .map(|(rank, (index, score))| {
+                let text = CORPUS[index];
+                format!("  {rank}. [{score}] {text}")
+            })
+            .collect();
+        assert_eq!(lines, expected_lines, "query was {question}");
+    }
 }

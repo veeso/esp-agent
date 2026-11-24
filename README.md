@@ -58,6 +58,30 @@ embedder.config_mut().max_length = 128;
 let vector = embedder.embed("Qdrant is a vector search engine written in Rust.");
 ```
 
+Then store texts and search them by meaning:
+
+```rust
+use esp_agent::{Embedder, Model, Retriever, model};
+
+static POTION: Model = model!("model");
+
+let mut retriever = Retriever::new(Embedder::new(POTION));
+retriever.insert("Paris is the capital of France.", 1);
+retriever.insert("Water boils at 100 degrees Celsius.", 2);
+let best = retriever.search("Which city is France's capital?", 1);
+```
+
+Each hit holds the score, the insertion index, and references to both the original
+text and its payload.
+Scores are cosine similarities, so they stay correct when the embedder's
+`normalize` setting is off. Hits come back by descending score, and entries with
+equal scores keep their insertion order. A `k` larger than the number of
+entries returns every entry, and a `k` of zero returns none. A query with no
+known words scores every entry `0.0`, so the hits are the first entries in
+insertion order. The retriever gives read-only access to its embedder, because
+changing the embedder settings after inserting texts would mix vectors built
+with different settings.
+
 The library ships no model. `model!` embeds the folder you name, which holds
 `tokenizer.json` and `model.safetensors`, and a relative path is resolved
 against your firmware crate. The embedder is cheap to create because nothing is
@@ -88,10 +112,12 @@ firmware that uses the library.
 - `crates/esp-agent/src/model.rs` is the `Model` value that `model!` produces.
 - `crates/esp-agent/src/tokenizer.rs` is a `no_std` BERT WordPiece tokenizer: normalize (clean text, CJK spacing, accent stripping, lowercase), split on whitespace and punctuation, then greedy longest-match WordPiece.
 - `crates/esp-agent/src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`). Its settings live in `EmbedderConfig`.
+- `crates/esp-agent/src/index.rs` is `Index`, a brute-force in-memory vector index: one contiguous buffer of floats plus a payload per entry, searched by cosine similarity.
+- `crates/esp-agent/src/retriever.rs` is `Retriever`, which pairs an `Embedder` with an `Index` so callers store and search text.
 - `examples/semantic-search` is an example firmware. It embeds the potion-2M
-  model from `examples/semantic-search/model/`, embeds sample sentences, and
-  runs an interactive serial search console that prints timings and ranked
-  matches. The sans-IO line editor for the console lives in its
+  model from `examples/semantic-search/model/`, indexes sample sentences with a
+  `Retriever`, and runs an interactive serial search console that prints the
+  search time and ranked matches. The sans-IO line editor for the console lives in its
   `src/console.rs`.
 
 The tokenizer produces the same token IDs as [`statembed`](https://github.com/AstraBert/statembed) on inputs covering accents, CJK, emoji, control characters, and truncation.
@@ -203,7 +229,7 @@ Indexed sentences:
   - ...
 
 > The quick brown fox jumps over the lazy dog.
-<timing> us total (<timing> us to embed the query)
+<timing> us
   1. [<score>] The quick brown fox jumps over the lazy dog.
   2. [<score>] A fast auburn fox leaps above a sleepy hound.
   3. [<score>] ...
