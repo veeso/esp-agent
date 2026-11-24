@@ -1,16 +1,4 @@
 //! A `no_std` BERT WordPiece tokenizer.
-//!
-//! It reproduces the pipeline declared in `model/tokenizer.json`:
-//!
-//! 1. `BertNormalizer` (`clean_text`, `handle_chinese_chars`, accent stripping, lowercasing)
-//! 2. `BertPreTokenizer` (split on whitespace, isolate every punctuation character)
-//! 3. `WordPiece` (greedy longest-match-first, `##` continuation prefix, whole word
-//!    becomes `[UNK]` if any piece is missing or if it is longer than the word limit)
-//!
-//! No special tokens are added, which is what static (Model2Vec) embedding models expect.
-//!
-//! The vocabulary is **not** parsed or copied: `build.rs` compiles it into a sorted binary
-//! blob (see [`Vocab`]) that is binary-searched where it lives, in flash.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -33,15 +21,34 @@ pub struct Vocab {
     blob: &'static [u8],
 }
 
+impl core::fmt::Debug for Vocab {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Vocab")
+            .field("blob_bytes", &self.blob.len())
+            .finish()
+    }
+}
+
 impl Vocab {
+    /// Wraps `blob`, which must follow the layout described on [`Vocab`].
     pub const fn new(blob: &'static [u8]) -> Self {
         Self { blob }
     }
 
+    /// Returns the number of tokens in the vocabulary.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the blob lacks the four-byte token count.
     pub fn len(&self) -> usize {
         read_u32(self.blob, 0) as usize
     }
 
+    /// Returns `true` when the vocabulary holds no tokens.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the blob lacks the four-byte token count.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -54,6 +61,11 @@ impl Vocab {
     }
 
     /// Returns the id of `token`, if it is in the vocabulary.
+    ///
+    /// # Panics
+    ///
+    /// May panic if the count, offsets, or token entries read during lookup
+    /// extend past the blob.
     pub fn get(&self, token: &str) -> Option<u32> {
         let key = token.as_bytes();
         let (mut lo, mut hi) = (0, self.len());
@@ -71,6 +83,19 @@ impl Vocab {
 }
 
 /// BERT-style WordPiece tokenizer over an in-flash [`Vocab`].
+///
+/// It reproduces the pipeline declared in `model/tokenizer.json`:
+///
+/// 1. `BertNormalizer` (`clean_text`, `handle_chinese_chars`, accent stripping, lowercasing)
+/// 2. `BertPreTokenizer` (split on whitespace, isolate every punctuation character)
+/// 3. `WordPiece` (greedy longest-match-first, `##` continuation prefix, whole word
+///    becomes `[UNK]` if any piece is missing or if it is longer than the word limit)
+///
+/// No special tokens are added, which is what static (Model2Vec) embedding models expect.
+///
+/// The vocabulary is **not** parsed or copied: `build.rs` compiles it into a sorted binary
+/// blob (see [`Vocab`]) that is binary-searched where it lives, in flash.
+#[derive(Debug)]
 pub struct WordPieceTokenizer {
     vocab: Vocab,
     unk_id: u32,
@@ -79,6 +104,9 @@ pub struct WordPieceTokenizer {
 }
 
 impl WordPieceTokenizer {
+    /// Creates a tokenizer over `vocab`.
+    ///
+    /// * `unk_id`: the id of the `[UNK]` token.
     /// * `max_chars_per_word`: words longer than this (in chars) become `[UNK]`.
     /// * `max_length`: truncation, counted in tokens (including `[UNK]`s), like the
     ///   reference implementation which truncates before `[UNK]`s are removed.
@@ -96,6 +124,7 @@ impl WordPieceTokenizer {
         }
     }
 
+    /// Returns the id of the `[UNK]` token.
     pub fn unk_id(&self) -> u32 {
         self.unk_id
     }
@@ -243,7 +272,10 @@ impl WordPieceTokenizer {
     }
 }
 
-/// `BertNormalizer { clean_text, handle_chinese_chars, strip_accents: lowercase, lowercase }`.
+/// Normalizes text for BERT WordPiece tokenization.
+///
+/// Cleans control characters and whitespace, pads Chinese characters with spaces,
+/// lowercases letters, and strips accents.
 pub fn normalize(text: &str) -> String {
     // clean_text + handle_chinese_chars
     let mut cleaned = String::with_capacity(text.len() + text.len() / 8);
@@ -304,4 +336,125 @@ fn is_chinese_char(c: char) -> bool {
         | 0x2B920..=0x2CEAF
         | 0xF900..=0xFAFF
         | 0x2F800..=0x2FA1F)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Vocab, WordPieceTokenizer, normalize};
+    use crate::test_util::{VOCAB, tokenizer, vocab};
+
+    #[test]
+    fn normalize_applies_bert_text_rules() {
+        for (rule, input, expected) in [
+            ("strip accents and lowercase", "Héllo WÖRLD", "hello world"),
+            ("replace whitespace", "a\tb\nc\rd", "a b c d"),
+            (
+                "remove control and format characters",
+                "a\u{0}b\u{fffd}c\u{200b}d",
+                "abcd",
+            ),
+            ("pad CJK characters", "中文", " 中  文 "),
+        ] {
+            assert_eq!(normalize(input), expected, "{rule}");
+        }
+    }
+
+    #[test]
+    fn debug_summarizes_an_incomplete_vocab_without_reading_its_header() {
+        let vocab = Vocab::new(&[173, 201, 239]);
+        let debug = alloc::format!("{vocab:?}");
+        assert!(debug.contains("blob_bytes: 3"));
+        assert!(!debug.contains("173, 201, 239"));
+    }
+
+    #[test]
+    fn vocab_finds_present_tokens_and_rejects_missing_ones() {
+        let vocab = vocab(VOCAB);
+        assert_eq!(vocab.get("##aff"), Some(2));
+        assert_eq!(vocab.get("中"), Some(8));
+        assert_eq!(vocab.get("aff"), None);
+        assert_eq!(vocab.get(""), None);
+        assert_eq!(vocab.len(), 10);
+        assert!(!vocab.is_empty());
+    }
+
+    #[test]
+    fn vocab_reports_empty() {
+        assert!(vocab(&[]).is_empty());
+    }
+
+    #[test]
+    fn encode_prefers_the_longest_initial_and_continuation_pieces() {
+        let vocab = vocab(&[
+            ("a", 1),
+            ("ab", 2),
+            ("##b", 3),
+            ("##c", 4),
+            ("##cd", 5),
+            ("##d", 6),
+        ]);
+        let tokenizer = WordPieceTokenizer::new(vocab, 0, 100, 512);
+        assert_eq!(tokenizer.encode("abcd"), [2, 5]);
+    }
+
+    #[test]
+    fn encode_isolates_punctuation() {
+        let tokenizer = tokenizer(100, 512);
+        assert_eq!(tokenizer.encode("Hello, world"), [4, 5, 6]);
+        assert_eq!(tokenizer.encode("hello,world"), [4, 5, 6]);
+    }
+
+    #[test]
+    fn encode_strips_accents_and_splits_chinese_characters() {
+        assert_eq!(tokenizer(100, 512).encode("Héllo中文"), [4, 8, 9]);
+    }
+
+    #[test]
+    fn encode_drops_unknown_words() {
+        assert_eq!(tokenizer(100, 512).encode("hello xyz world"), [4, 6]);
+    }
+
+    #[test]
+    fn encode_with_unk_keeps_unknown_words() {
+        let tokenizer =
+            WordPieceTokenizer::new(vocab(&[("[UNK]", 42), ("hello", 4)]), 42, 100, 512);
+        assert_eq!(tokenizer.unk_id(), 42);
+        assert_eq!(tokenizer.encode_with_unk("hello xyz hello"), [4, 42, 4]);
+    }
+
+    #[test]
+    fn partial_match_makes_the_whole_word_unknown() {
+        assert_eq!(tokenizer(100, 512).encode_with_unk("unaffablex"), [0]);
+    }
+
+    #[test]
+    fn long_word_limit_counts_chars_not_bytes() {
+        let tokenizer = tokenizer(2, 512);
+        assert_eq!(tokenizer.encode_with_unk("中文 un"), [8, 9, 1]);
+        assert_eq!(tokenizer.encode_with_unk("unaffable"), [0]);
+    }
+
+    #[test]
+    fn unknown_multibyte_piece_makes_the_whole_word_unknown() {
+        assert_eq!(tokenizer(100, 512).encode_with_unk("un🙂"), [0]);
+    }
+
+    #[test]
+    fn encode_truncates_inside_a_word() {
+        assert_eq!(tokenizer(100, 2).encode("unaffable"), [1, 2]);
+    }
+
+    #[test]
+    fn unknown_words_count_toward_truncation() {
+        let tokenizer = tokenizer(100, 2);
+        assert_eq!(tokenizer.encode("xyz hello world"), [4]);
+        assert_eq!(tokenizer.encode_with_unk("xyz hello world"), [0, 4]);
+    }
+
+    #[test]
+    fn blank_text_encodes_to_nothing() {
+        let tokenizer = tokenizer(100, 512);
+        assert_eq!(tokenizer.encode(""), [0u32; 0]);
+        assert_eq!(tokenizer.encode(" \t\n"), [0u32; 0]);
+    }
 }

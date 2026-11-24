@@ -17,6 +17,14 @@ unicode-properties = { workspace = true, features = ["general-category"] }
 [build-dependencies]
 serde_json = { workspace = true }
 
+[lints.clippy]
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+[lints.rust]
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+
 [workspace]
 members = ["examples/semantic-search"]
 

@@ -38,6 +38,11 @@ doc_s31 args="":
 [group('code-check')]
 doc args="": (doc_s3 args) (doc_s31 args)
 
+# Run the library tests on the host, rebuilding std for the host target.
+[group('code-check')]
+test args="":
+  cargo test --locked --package esp-local-agent --target "$(rustc -vV | sed -n 's/^host: //p')" --config 'unstable.build-std=["std","test","panic_unwind"]' {{ args }}
+
 # Check advisories, licenses, bans, and dependency sources.
 [group('code-check')]
 deny args="":
@@ -60,4 +65,5 @@ check:
   just fmt_check
   just clippy "-- -D warnings"
   just doc
+  just test
   just deny

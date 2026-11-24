@@ -22,11 +22,17 @@
 extern crate alloc;
 
 pub mod console;
-pub mod embedder;
-pub mod tokenizer;
+mod model;
 
-pub use embedder::{DEFAULT_MAX_LENGTH, EmbedderError, StaticEmbedder, cosine_similarity};
-pub use tokenizer::{Vocab, WordPieceTokenizer};
+#[doc(inline)]
+pub use model::embedder::{DEFAULT_MAX_LENGTH, EmbedderError, StaticEmbedder, cosine_similarity};
+#[doc(inline)]
+pub use model::tokenizer::{Vocab, WordPieceTokenizer, normalize};
+#[doc(hidden)]
+pub use model::{embedder, tokenizer};
+
+#[cfg(test)]
+mod test_util;
 
 mod meta {
     include!(concat!(env!("OUT_DIR"), "/model_meta.rs"));
@@ -65,6 +71,11 @@ pub fn tokenizer() -> WordPieceTokenizer {
 }
 
 /// The embedder for the model embedded in the firmware. Cheap: nothing is copied.
+///
+/// # Panics
+///
+/// Panics only if the table size check that `build.rs` runs at build time was bypassed,
+/// which cannot happen in a regular build.
 pub fn embedder() -> StaticEmbedder {
     StaticEmbedder::new(tokenizer(), embedding_table(), VOCAB_SIZE, DIM)
         .expect("build.rs validated the table size")
