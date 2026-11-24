@@ -1,6 +1,6 @@
 //! Checks that firmware can embed several models from their own folders.
 
-use esp_local_agent::{Embedder, Model, model};
+use esp_agent::{Embedder, Model, model};
 
 static TINY_2D: Model = model!("tests/fixtures/tiny-2d");
 static TINY_3D: Model = model!("tests/fixtures/tiny-3d");

@@ -15,13 +15,12 @@ fn invalid_header_points_at_the_folder_literal() {
         root.join("Cargo.toml"),
         format!(
             "[package]\nname = \"diagnostic-test\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\
-             [dependencies]\nesp-local-agent = {{ path = {library_path} }}\n"
+             [dependencies]\nesp-agent = {{ path = {library_path} }}\n"
         ),
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();
-    let source =
-        "use esp_local_agent::{Model, model};\nstatic MODEL: Model = model!(\"broken\");\n";
+    let source = "use esp_agent::{Model, model};\nstatic MODEL: Model = model!(\"broken\");\n";
     fs::write(root.join("src/lib.rs"), source).unwrap();
     let folder = root.join("broken");
     fs::create_dir(&folder).unwrap();

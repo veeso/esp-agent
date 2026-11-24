@@ -30,7 +30,7 @@
 //! time:
 //!
 //! ```rust,ignore
-//! use esp_local_agent::{Embedder, Model, model};
+//! use esp_agent::{Embedder, Model, model};
 //!
 //! static POTION: Model = model!("model");
 //!
@@ -68,7 +68,7 @@ mod test_util;
 /// * `model.safetensors`: one matrix of finite `f32` weights with a row for every vocabulary id.
 ///
 /// A relative path is resolved against the `CARGO_MANIFEST_DIR` of the crate
-/// that calls the macro, which is the firmware crate and not `esp-local-agent`.
+/// that calls the macro, which is the firmware crate and not `esp-agent`.
 /// The folder is validated while the firmware compiles, and every problem is a
 /// compile error that points at the string literal.
 ///
@@ -76,7 +76,7 @@ mod test_util;
 /// The table stays in flash and is read in place.
 ///
 /// ```rust,ignore
-/// use esp_local_agent::{Model, model};
+/// use esp_agent::{Model, model};
 ///
 /// static POTION: Model = model!("model");
 /// ```
@@ -91,7 +91,7 @@ macro_rules! model {
 /// Support items for the expansion of [`model!`]. Not part of the public API.
 #[doc(hidden)]
 pub mod _private {
-    pub use esp_local_agent_macros::compile_model;
+    pub use esp_agent_macros::compile_model;
 
     /// The pieces of a compiled model folder, as laid out by `model!`.
     #[derive(Debug)]

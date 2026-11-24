@@ -1,11 +1,11 @@
 [package]
-name = "esp-local-agent-macros"
+name = "esp-agent-macros"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/veeso/esp-local-agent"
+repository = "https://github.com/veeso/esp-agent"
 rust-version = "1.97"
-description = "Compile-time model embedding for esp-local-agent"
+description = "Compile-time model embedding for esp-agent"
 
 [dependencies]
 proc-macro2 = { workspace = true }

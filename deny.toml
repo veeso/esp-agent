@@ -1,4 +1,4 @@
-# cargo-deny policy for esp-local-agent.
+# cargo-deny policy for esp-agent.
 
 [graph]
 all-features = true
