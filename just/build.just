@@ -66,15 +66,18 @@ build_s31 args="": download_test_model
 [group('build')]
 build args="": (build_s3 args) (build_s31 args)
 
-# Flash the example firmware to the ESP32-S3 and open the serial monitor.
+# Flash semantic-search (default) or home-assistant to the ESP32-S3 and open the serial monitor. Cargo flags are optional.
 [group('build')]
-run_s3 args="": download_test_model
-  cargo run --locked --release --package {{ example }} {{ args }}
+run_s3 scenario="" args="": download_test_model (_run "" scenario args)
 
-# Flash the example firmware to the ESP32-S31 and open the serial monitor.
+# Flash semantic-search (default) or home-assistant to the ESP32-S31 and open the serial monitor. Cargo flags are optional.
 [group('build')]
-run_s31 args="": download_test_model
-  cargo run --locked --release --package {{ example }} {{ s31_flags }} {{ args }}
+run_s31 scenario="" args="": download_test_model (_run s31_flags scenario args)
+
+# Run one firmware binary: a known scenario selects its binary, Cargo flags are passed through.
+[private]
+_run chip_flags scenario args:
+  cargo run --locked --release --package {{ example }} {{ chip_flags }} {{ if scenario == "" { "--bin " + example } else if scenario =~ '^(semantic-search|home-assistant)$' { "--bin " + scenario } else if scenario =~ '^-' { scenario } else { error("unknown scenario '" + scenario + "': use semantic-search or home-assistant") } }} {{ args }}
 
 # Open the serial monitor without flashing.
 [group('build')]

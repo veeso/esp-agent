@@ -67,6 +67,27 @@
 //! words scores every entry `0.0`, so the hits are the first entries in insertion order.
 //! An [`Index`] stores vectors you computed yourself in the same way.
 //!
+//! # Holding a conversation
+//!
+//! [`Agent::builder`] with [`context`](AgentBuilder::context) gives an agent a bounded
+//! memory, and [`Agent::turn`] uses it with a [`TurnHandler`] that the firmware writes.
+//! The handler parses commands from the original text, resolves targets in its own catalog,
+//! and runs the actions. The agent asks which target the user means, resolves the answer,
+//! and lets a later command refer to a single remembered target. A stored text is only a
+//! hint for the handler and never runs a command:
+//!
+//! ```rust,ignore
+//! let mut agent = Agent::builder(POTION, &knowledge).context(2).build()?;
+//! match agent.turn("Turn on the lamp", &mut home) {
+//!     TurnOutcome::Clarify(choices) => ask_which(&choices),
+//!     TurnOutcome::Executed(done) => report(done),
+//!     _ => {}
+//! }
+//! ```
+//!
+//! The memory is part of the agent. An agent is therefore `Clone` only when its payload is,
+//! each clone has its own conversation, and an agent is no longer `Copy`.
+//!
 //! # Reusing buffers
 //!
 //! The one-call methods allocate fresh buffers on every call. A firmware loop can keep a
@@ -98,6 +119,7 @@
 extern crate alloc;
 
 mod agent;
+mod context;
 mod embedder;
 mod index;
 mod knowledge;
@@ -107,7 +129,9 @@ mod scratch;
 mod tokenizer;
 
 #[doc(inline)]
-pub use agent::{Agent, AgentError};
+pub use agent::{Agent, AgentBuilder, AgentError};
+#[doc(inline)]
+pub use context::{Command, TargetId, TargetMatch, TargetSelector, TurnHandler, TurnOutcome};
 #[doc(inline)]
 pub use embedder::{Embedder, EmbedderConfig, cosine_similarity};
 #[doc(inline)]

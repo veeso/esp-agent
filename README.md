@@ -87,6 +87,32 @@ insertion order. The store gives read-only access to its embedder, because
 changing the embedder settings after inserting texts would mix vectors built
 with different settings.
 
+### Hold a conversation
+
+An agent can also run commands and remember what a follow-up refers to. Enable
+the memory with the builder, give `Agent::turn` a `TurnHandler` that knows your
+devices, and the agent asks which device you mean, keeps the choice, and
+resolves "it" in the next command:
+
+```rust
+let mut agent = Agent::builder(POTION, &knowledge)
+    .context(2)
+    .build()
+    .expect("the store is embedded with POTION");
+let outcome = agent.turn("Turn on the lamp", &mut home);
+```
+
+`context(2)` keeps at most two targets in each list: the choices of a pending
+question and the targets of the last successful command. Without `context`, or
+with zero, the agent keeps no memory and explicit commands still work. The
+handler parses the original text, resolves targets in its own catalog, and
+dispatches the action. A search hit is only a suggestion and never runs a
+command. `turn` returns `Executed`, `Failed`, `Clarify`, `NeedTarget`, or
+`Unrecognized`.
+
+An agent owns its conversation, so it is no longer `Copy`, and it is `Clone`
+only when its payload is. Each clone has an independent conversation.
+
 A firmware loop can prompt without allocating by keeping one `Scratch` and one
 hits vector, and reusing them for every prompt:
 
@@ -176,13 +202,15 @@ Rebuild any stored embeddings when you switch models.
 - `crates/esp-agent/src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`). Its settings live in `EmbedderConfig`.
 - `crates/esp-agent/src/index.rs` is `Index`, a brute-force in-memory vector index: one contiguous buffer of floats plus a payload per entry, searched by cosine similarity.
 - `crates/esp-agent/src/knowledge.rs` is `Knowledge`, the store that pairs an `Embedder` with an `Index` and keeps the original texts.
-- `crates/esp-agent/src/agent.rs` is `Agent`, which borrows a `Knowledge` store and answers prompts with the closest stored texts. `crates/esp-agent/src/retriever.rs` is the internal search it forwards to.
+- `crates/esp-agent/src/agent.rs` is `Agent`, which borrows a `Knowledge` store, answers prompts with the closest stored texts, and runs conversation turns. `crates/esp-agent/src/context.rs` holds its bounded conversation memory and the `TurnHandler` types. `crates/esp-agent/src/retriever.rs` is the internal search it forwards to.
 - `examples/semantic-search` is an example firmware. It embeds the potion-2M
   model from `examples/semantic-search/model/` (downloaded, not tracked by
   git), indexes sample sentences in a
   `Knowledge` store, and runs an interactive serial search console that prints the
   search time and ranked matches. The sans-IO line editor for the console lives in its
-  `src/console.rs`.
+  `src/console.rs`. A second binary, `home-assistant`, drives two simulated lamps
+  through `Agent::turn`. Its catalog and vocabulary live in `src/home.rs`, and
+  the serial and chip setup both binaries share lives in `src/board.rs`.
 
 The tokenizer produces the same token IDs as [`statembed`](https://github.com/AstraBert/statembed) on inputs covering accents, CJK, emoji, control characters, and truncation.
 Pooled embeddings agree within floating-point rounding precision.
@@ -252,8 +280,9 @@ rustup toolchain install nightly --profile minimal --component rustfmt
 
 ## Run the example
 
-The build and run recipes target the `semantic-search` example firmware.
-Select exactly one chip per build. Every command goes through a `just` recipe:
+The build and run recipes target the example firmware package, which has two
+binaries: `semantic-search` and `home-assistant`. Select exactly one chip per
+build. Every command goes through a `just` recipe:
 recipes with the suffix `_s3` or `_s31` run for one chip.
 
 ### ESP32-S3
@@ -305,6 +334,47 @@ Indexed sentences:
 
 >
 ```
+
+### Choose a demo
+
+The run recipes take the demo as their first argument. Without it they flash
+`semantic-search`:
+
+```bash
+just run_s3 home-assistant
+just run_s31 home-assistant
+just run_s3 semantic-search
+```
+
+An unknown name fails before anything is flashed. A second argument passes
+Cargo flags, as in `just run_s3 home-assistant '--verbose'`. Cargo
+flags alone, such as `just run_s3 '--verbose'`, still work and run
+`semantic-search`.
+
+### Talk to the simulated lamps
+
+`home-assistant` controls two simulated lamps, a desk lamp and a floor lamp.
+Both are called "lamp", and "living room lights" means both. It changes only
+simulated state and drives no hardware. The agent keeps up to two targets. Type
+this at the prompt:
+
+```text
+> Turn on the lamp
+Which lamp, the desk lamp or the floor lamp?
+> The desk one
+The desk lamp is on.
+> Dim it to 30 percent
+The desk lamp is at 30 percent.
+> Turn on the living room lights
+The living room lights are on.
+> Dim it to 30 percent
+Which lamp, the desk lamp or the floor lamp?
+> The floor one
+The floor lamp is at 30 percent.
+```
+
+"It" means the last lamp only when that command acted on a single lamp. After
+the command for both lamps the agent asks for a specific one.
 
 ## Troubleshooting
 
