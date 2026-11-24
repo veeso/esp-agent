@@ -39,23 +39,28 @@
 //! let vector = embedder.embed("Qdrant is a vector search engine written in Rust.");
 //! ```
 //!
-//! # Retrieving text
+//! # Asking an agent
 //!
-//! A [`Retriever`] pairs an [`Embedder`] with an [`Index`]. It stores texts with a
-//! payload each and returns the ones closest to a query:
+//! A [`Knowledge`] store pairs an [`Embedder`] with an [`Index`]. It holds texts with a
+//! payload each, and any number of [`Agent`]s can borrow it. An agent takes the same
+//! [`Model`] and answers a prompt with the stored texts closest to it:
 //!
 //! ```rust,ignore
-//! use esp_agent::{Embedder, Model, Retriever, model};
+//! use esp_agent::{Agent, Embedder, Knowledge, Model, model};
 //!
 //! static POTION: Model = model!("model");
 //!
-//! let mut retriever = Retriever::new(Embedder::new(POTION));
-//! retriever.insert("Paris is the capital of France.", 1);
-//! retriever.insert("Water boils at 100 degrees Celsius.", 2);
-//! let best = retriever.search("Which city is France's capital?", 1);
+//! let mut knowledge = Knowledge::new(Embedder::new(POTION));
+//! knowledge.insert("Paris is the capital of France.", 1);
+//! knowledge.insert("Water boils at 100 degrees Celsius.", 2);
+//! let agent = Agent::new(POTION, &knowledge).expect("the store is embedded with POTION");
+//! let best = agent.prompt("Which city is France's capital?", 1);
 //! ```
 //!
-//! A search scores every stored entry by cosine similarity, so scores stay correct when
+//! [`Agent::new`] returns [`AgentError::ModelMismatch`] when the store was embedded with
+//! another model, since vectors of two models cannot be compared.
+//!
+//! A prompt scores every stored entry by cosine similarity, so scores stay correct when
 //! the embedder's `normalize` setting is off. Hits come back by descending score, and
 //! entries with equal scores keep their insertion order. A `k` larger than the number of
 //! entries returns every entry, and a `k` of zero returns none. A query with no known
@@ -76,37 +81,43 @@
 //! let mut scratch = Scratch::new();
 //! let mut hits: Vec<Hit<'_, u32>> = Vec::with_capacity(3);
 //! loop {
-//!     retriever.search_with(&next_question(), 3, &mut scratch, &mut hits);
+//!     agent.prompt_with(&next_question(), 3, &mut scratch, &mut hits);
 //!     for hit in &hits {
-//!         let text = retriever.text(hit.index).unwrap();
+//!         let text = agent.knowledge().text(hit.index).unwrap();
 //!     }
 //! }
 //! ```
 //!
 //! Once the buffers are warm, [`WordPieceTokenizer::encode_with`], [`Embedder::embed_with`],
-//! [`Index::search_into`], and [`Retriever::search_with`] reuse their buffers. A call
+//! [`Index::search_into`], and [`Agent::prompt_with`] reuse their buffers. A call
 //! allocates only if the scratch or hits vector needs to grow. Reserving room for `k`
-//! hits covers any search returning up to `k` entries. Use [`Retriever::text`] to borrow
+//! hits covers any search returning up to `k` entries. Use [`Knowledge::text`] to borrow
 //! the original text at a hit's insertion position.
 #![no_std]
 
 extern crate alloc;
 
+mod agent;
 mod embedder;
 mod index;
+mod knowledge;
 mod model;
 mod retriever;
 mod scratch;
 mod tokenizer;
 
 #[doc(inline)]
+pub use agent::{Agent, AgentError};
+#[doc(inline)]
 pub use embedder::{Embedder, EmbedderConfig, cosine_similarity};
 #[doc(inline)]
 pub use index::{Hit, Index};
 #[doc(inline)]
+pub use knowledge::Knowledge;
+#[doc(inline)]
 pub use model::Model;
 #[doc(inline)]
-pub use retriever::{Retriever, TextHit};
+pub use retriever::TextHit;
 #[doc(inline)]
 pub use scratch::Scratch;
 #[doc(inline)]

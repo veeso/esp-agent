@@ -59,32 +59,36 @@ embedder.config_mut().max_length = 128;
 let vector = embedder.embed("Qdrant is a vector search engine written in Rust.");
 ```
 
-Then store texts and search them by meaning:
+Then store texts in a `Knowledge` store and ask an agent about them:
 
 ```rust
-use esp_agent::{Embedder, Model, Retriever, model};
+use esp_agent::{Agent, Embedder, Knowledge, Model, model};
 
 static POTION: Model = model!("model");
 
-let mut retriever = Retriever::new(Embedder::new(POTION));
-retriever.insert("Paris is the capital of France.", 1);
-retriever.insert("Water boils at 100 degrees Celsius.", 2);
-let best = retriever.search("Which city is France's capital?", 1);
+let mut knowledge = Knowledge::new(Embedder::new(POTION));
+knowledge.insert("Paris is the capital of France.", 1);
+knowledge.insert("Water boils at 100 degrees Celsius.", 2);
+let agent = Agent::new(POTION, &knowledge).expect("the store is embedded with POTION");
+let best = agent.prompt("Which city is France's capital?", 1);
 ```
 
-Each hit holds the score, the insertion index, and references to both the original
+`Agent::new` fails with `AgentError::ModelMismatch` when the store was embedded
+with another model. Any number of agents can borrow the same store.
+
+Each hit returned by `prompt` holds the score, the insertion index, and references to both the original
 text and its payload.
 Scores are cosine similarities, so they stay correct when the embedder's
 `normalize` setting is off. Hits come back by descending score, and entries with
 equal scores keep their insertion order. A `k` larger than the number of
-entries returns every entry, and a `k` of zero returns none. A query with no
+entries returns every entry, and a `k` of zero returns none. A prompt with no
 known words scores every entry `0.0`, so the hits are the first entries in
-insertion order. The retriever gives read-only access to its embedder, because
+insertion order. The store gives read-only access to its embedder, because
 changing the embedder settings after inserting texts would mix vectors built
 with different settings.
 
-A firmware loop can search without allocating by keeping one `Scratch` and one
-hits vector, and reusing them for every query:
+A firmware loop can prompt without allocating by keeping one `Scratch` and one
+hits vector, and reusing them for every prompt:
 
 ```rust
 extern crate alloc;
@@ -94,12 +98,12 @@ use esp_agent::Scratch;
 
 let mut scratch = Scratch::new();
 let mut hits = Vec::with_capacity(3);
-retriever.search_with("Which city is France's capital?", 3, &mut scratch, &mut hits);
+agent.prompt_with("Which city is France's capital?", 3, &mut scratch, &mut hits);
 ```
 
-`encode_with`, `embed_with`, `search_into`, and `search_with` allocate only when
+`encode_with`, `embed_with`, `search_into`, and `prompt_with` allocate only when
 a buffer needs to grow. Reserving room for `k` hits covers any search returning
-up to `k` entries. Use `retriever.text(hit.index)` to borrow the original text
+up to `k` entries. Use `agent.knowledge().text(hit.index)` to borrow the original text
 for a hit.
 
 The library ships no model. `model!` embeds the folder you name, which holds
@@ -171,11 +175,12 @@ Rebuild any stored embeddings when you switch models.
 - `crates/esp-agent/src/tokenizer.rs` is a `no_std` BERT WordPiece tokenizer: normalize (clean text, CJK spacing, accent stripping, lowercase), split on whitespace and punctuation, then greedy longest-match WordPiece.
 - `crates/esp-agent/src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`). Its settings live in `EmbedderConfig`.
 - `crates/esp-agent/src/index.rs` is `Index`, a brute-force in-memory vector index: one contiguous buffer of floats plus a payload per entry, searched by cosine similarity.
-- `crates/esp-agent/src/retriever.rs` is `Retriever`, which pairs an `Embedder` with an `Index` so callers store and search text.
+- `crates/esp-agent/src/knowledge.rs` is `Knowledge`, the store that pairs an `Embedder` with an `Index` and keeps the original texts.
+- `crates/esp-agent/src/agent.rs` is `Agent`, which borrows a `Knowledge` store and answers prompts with the closest stored texts. `crates/esp-agent/src/retriever.rs` is the internal search it forwards to.
 - `examples/semantic-search` is an example firmware. It embeds the potion-2M
   model from `examples/semantic-search/model/` (downloaded, not tracked by
-  git), indexes sample sentences with a
-  `Retriever`, and runs an interactive serial search console that prints the
+  git), indexes sample sentences in a
+  `Knowledge` store, and runs an interactive serial search console that prints the
   search time and ranked matches. The sans-IO line editor for the console lives in its
   `src/console.rs`.
 
@@ -364,7 +369,7 @@ firmware and cover three groups:
 
 - `tokenize`: text normalization and WordPiece encoding.
 - `embed`: turning text into vectors, and mean-pooling token ids.
-- `search`: storing texts and searching them with a `Retriever` and an `Index`.
+- `search`: storing texts and storing texts in a `Knowledge` store, prompting an `Agent`, and searching an `Index`.
 
 The benchmark recipes download the potion-2M model on first use, like `just test`.
 The numbers come from a computer, so they do not match the chip. Use them to

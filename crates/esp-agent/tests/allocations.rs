@@ -3,7 +3,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use esp_agent::{Embedder, Index, Model, Retriever, Scratch, model};
+use esp_agent::{Agent, Embedder, Index, Knowledge, Model, Scratch, model};
 
 thread_local! {
     /// Heap allocations made by the current thread, so parallel tests do not disturb each other.
@@ -114,15 +114,16 @@ fn search_into_with_enough_capacity_does_not_allocate() {
 }
 
 #[test]
-fn retriever_search_with_a_warm_scratch_does_not_allocate() {
-    let mut retriever = Retriever::with_capacity(Embedder::new(TINY_2D), 3);
-    retriever.extend([("hello", ()), ("world", ()), ("dog", ())]);
+fn agent_prompt_with_a_warm_scratch_does_not_allocate() {
+    let mut knowledge = Knowledge::with_capacity(Embedder::new(TINY_2D), 3);
+    knowledge.extend([("hello", ()), ("world", ()), ("dog", ())]);
+    let agent = Agent::new(TINY_2D, &knowledge).unwrap();
     let mut scratch = Scratch::new();
     let mut hits = Vec::with_capacity(3);
-    retriever.search_with("hello world fox dog", 3, &mut scratch, &mut hits);
+    agent.prompt_with("hello world fox dog", 3, &mut scratch, &mut hits);
 
     let allocations = allocations_during(|| {
-        retriever.search_with("fox dog", 3, &mut scratch, &mut hits);
+        agent.prompt_with("fox dog", 3, &mut scratch, &mut hits);
     });
 
     assert_eq!(allocations, 0);
@@ -133,20 +134,21 @@ fn retriever_search_with_a_warm_scratch_does_not_allocate() {
 fn repeated_unicode_embedding_and_search_do_not_allocate() {
     let embedder = Embedder::new(TINY_2D);
     let expected = embedder.embed("hello");
-    let mut retriever = Retriever::new(embedder);
-    retriever.insert("hello", ());
+    let mut knowledge = Knowledge::new(embedder);
+    knowledge.insert("hello", ());
+    let agent = Agent::new(TINY_2D, &knowledge).unwrap();
     let mut out = [0.0; 2];
     let mut hits = Vec::with_capacity(1);
     let mut scratch = Scratch::new();
     let text = "hel\u{0301}\u{0301}\u{0301}\u{0301}lo \u{302e}\u{1b44}";
-    retriever.search_with(text, 1, &mut scratch, &mut hits);
+    agent.prompt_with(text, 1, &mut scratch, &mut hits);
 
     let allocations = allocations_during(|| {
         for _ in 0..2 {
-            retriever
+            knowledge
                 .embedder()
                 .embed_with(text, &mut scratch, &mut out);
-            retriever.search_with(text, 1, &mut scratch, &mut hits);
+            agent.prompt_with(text, 1, &mut scratch, &mut hits);
         }
     });
     assert_eq!(allocations, 0);

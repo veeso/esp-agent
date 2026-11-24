@@ -7,7 +7,7 @@ use crate::embedder::Embedder;
 use crate::index::{Hit, Index};
 use crate::scratch::Scratch;
 
-/// A stored text and its associated payload, found by [`Retriever::search`].
+/// A stored text and its associated payload, returned by [`Agent::prompt`](crate::Agent::prompt).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextHit<'a, T> {
     /// Cosine similarity between the query and the stored text.
@@ -30,7 +30,7 @@ pub struct TextHit<'a, T> {
 /// The embedder is read-only: changing its configuration after inserting texts would mix
 /// vectors built with different settings.
 #[derive(Debug, Clone)]
-pub struct Retriever<T> {
+pub(crate) struct Retriever<T> {
     embedder: Embedder,
     index: Index<T>,
     texts: Vec<Box<str>>,
@@ -39,7 +39,7 @@ pub struct Retriever<T> {
 impl<T> Retriever<T> {
     /// Creates an empty retriever that embeds with `embedder`.
     #[must_use]
-    pub const fn new(embedder: Embedder) -> Self {
+    pub(crate) const fn new(embedder: Embedder) -> Self {
         let index = Index::new(embedder.dim());
         Self {
             embedder,
@@ -50,7 +50,7 @@ impl<T> Retriever<T> {
 
     /// Creates an empty retriever that can hold `capacity` texts without reallocating.
     #[must_use]
-    pub fn with_capacity(embedder: Embedder, capacity: usize) -> Self {
+    pub(crate) fn with_capacity(embedder: Embedder, capacity: usize) -> Self {
         let index = Index::with_capacity(embedder.dim(), capacity);
         Self {
             embedder,
@@ -61,36 +61,36 @@ impl<T> Retriever<T> {
 
     /// Returns the embedder that turns texts and queries into vectors.
     #[must_use]
-    pub const fn embedder(&self) -> &Embedder {
+    pub(crate) const fn embedder(&self) -> &Embedder {
         &self.embedder
     }
 
     /// Returns the index that holds the vectors of the stored texts.
     #[must_use]
-    pub const fn index(&self) -> &Index<T> {
+    pub(crate) const fn index(&self) -> &Index<T> {
         &self.index
     }
 
     /// Returns the original text at an insertion index, or `None` if it is out of bounds.
     #[must_use]
-    pub fn text(&self, index: usize) -> Option<&str> {
+    pub(crate) fn text(&self, index: usize) -> Option<&str> {
         self.texts.get(index).map(AsRef::as_ref)
     }
 
     /// Returns the number of stored texts.
     #[must_use]
-    pub const fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.index.len()
     }
 
     /// Returns `true` when no text is stored.
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub(crate) const fn is_empty(&self) -> bool {
         self.index.is_empty()
     }
 
     /// Embeds `text` and stores it with its `payload`.
-    pub fn insert(&mut self, text: &str, payload: T) {
+    pub(crate) fn insert(&mut self, text: &str, payload: T) {
         let vector = self.embedder.embed(text);
         self.index.insert(&vector, payload);
         self.texts.push(text.into());
@@ -101,7 +101,7 @@ impl<T> Retriever<T> {
     /// Fewer than `k` hits come back when fewer texts are stored, and none when `k` is
     /// zero.
     #[must_use]
-    pub fn search(&self, query: &str, k: usize) -> Vec<TextHit<'_, T>> {
+    pub(crate) fn search(&self, query: &str, k: usize) -> Vec<TextHit<'_, T>> {
         let mut hits = Vec::with_capacity(k.min(self.len()));
         self.search_with(query, k, &mut Scratch::new(), &mut hits);
         hits.into_iter()
@@ -122,7 +122,7 @@ impl<T> Retriever<T> {
     /// hits, the call is allocation-free. One `scratch` can serve retrievers of different
     /// dimensions. Pass a hit's [`index`](Hit::index) to [`text`](Self::text) to borrow
     /// the original text.
-    pub fn search_with<'a>(
+    pub(crate) fn search_with<'a>(
         &'a self,
         query: &str,
         k: usize,

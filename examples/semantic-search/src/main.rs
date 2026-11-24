@@ -10,7 +10,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use esp_agent::{Embedder, Hit, Model, Retriever, Scratch};
+use esp_agent::{Agent, Embedder, Hit, Knowledge, Model, Scratch};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
@@ -111,8 +111,9 @@ fn main() -> ! {
         kib = POTION.vocab_size() * POTION.dim() * size_of::<f32>() / 1024
     );
 
-    let mut retriever = Retriever::with_capacity(embedder, CORPUS.len());
-    retriever.extend(CORPUS.map(|text| (text, ())));
+    let mut knowledge = Knowledge::with_capacity(embedder, CORPUS.len());
+    knowledge.extend(CORPUS.map(|text| (text, ())));
+    let agent = Agent::new(POTION, &knowledge).expect("the corpus is embedded with POTION");
     info!("indexed {count} sentences", count = CORPUS.len());
 
     println!();
@@ -134,7 +135,7 @@ fn main() -> ! {
         if query.is_empty() {
             continue;
         }
-        answer(&retriever, query, &mut scratch, &mut hits);
+        answer(&agent, query, &mut scratch, &mut hits);
     }
 }
 
@@ -170,15 +171,15 @@ fn read_byte(input: &mut SerialInput<'_>) -> Option<u8> {
     None
 }
 
-/// Searches `retriever` for `query` and prints the [`TOP_K`] closest indexed sentences.
+/// Prompts `agent` with `query` and prints the [`TOP_K`] closest indexed sentences.
 fn answer<'a>(
-    retriever: &'a Retriever<()>,
+    agent: &Agent<'a, ()>,
     query: &str,
     scratch: &mut Scratch,
     hits: &mut Vec<Hit<'a, ()>>,
 ) {
     let start = Instant::now();
-    retriever.search_with(query, TOP_K, scratch, hits);
+    agent.prompt_with(query, TOP_K, scratch, hits);
     let total_us = start.elapsed().as_micros();
 
     println!("{total_us} us");

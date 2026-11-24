@@ -37,6 +37,11 @@ impl Vocab {
         Self { blob }
     }
 
+    /// Returns the blob this vocabulary reads in place.
+    pub const fn blob(&self) -> &'static [u8] {
+        self.blob
+    }
+
     /// Returns the number of tokens in the vocabulary.
     ///
     /// # Panics
