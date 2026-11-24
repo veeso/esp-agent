@@ -13,16 +13,21 @@ fmt_check args="":
 # Run Clippy for the ESP32-S3.
 [group('code-check')]
 clippy_s3 args="": download_test_model
-  cargo clippy --locked --workspace {{ args }}
+  cargo clippy --locked --workspace --exclude esp-agent-bench {{ args }}
 
 # Run Clippy for the ESP32-S31.
 [group('code-check')]
 clippy_s31 args="": download_test_model
-  cargo clippy --locked --workspace {{ s31_flags }} {{ args }}
+  cargo clippy --locked --workspace --exclude esp-agent-bench {{ s31_flags }} {{ args }}
 
 # Run Clippy for both chips.
 [group('code-check')]
 clippy args="": (clippy_s3 args) (clippy_s31 args)
+
+# Run Clippy for the benchmarks on this computer with the standard Rust toolchain.
+[group('code-check')]
+clippy_bench args="": download_test_model
+  {{ host_cargo }} clippy --locked --package esp-agent-bench --all-targets --target host-tuple {{ args }}
 
 # Build the library documentation for the ESP32-S3 and deny warnings.
 [group('code-check')]
@@ -42,6 +47,11 @@ doc args="": (doc_s3 args) (doc_s31 args)
 [group('code-check')]
 test args="": download_test_model
   {{ host_cargo }} test --locked {{ host_packages }} --target host-tuple {{ args }}
+
+# Run the benchmark report tests on this computer with the standard Rust toolchain.
+[group('code-check')]
+test_bench args="": download_test_model
+  {{ host_cargo }} test --locked --package esp-agent-bench --lib --bins --target host-tuple {{ args }}
 
 # Check advisories, licenses, bans, and dependency sources.
 [group('code-check')]
@@ -66,5 +76,7 @@ check:
   just clippy "-- -D warnings"
   just doc
   just build_host
+  just clippy_bench "-- -D warnings"
   just test
+  just test_bench
   just deny

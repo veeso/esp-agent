@@ -1,0 +1,30 @@
+[package]
+name = "esp-agent-bench"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+repository = "https://github.com/veeso/esp-agent"
+rust-version = "1.97"
+description = "Host benchmarks for esp-agent; never published"
+
+[dependencies]
+criterion = { workspace = true, features = ["html_reports"] }
+esp-agent = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[bench]]
+name = "embed"
+harness = false
+
+[[bench]]
+name = "search"
+harness = false
+
+[[bench]]
+name = "tokenize"
+harness = false
