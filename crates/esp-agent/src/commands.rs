@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use crate::catalog::TargetCatalog;
+use crate::catalog::{TargetLookup, trim_target_suffix};
 use crate::context::{Command, TargetId, TargetMatch, TargetSelector, TurnHandler};
 
 /// An action enum whose commands are declared next to its variants.
@@ -51,11 +51,17 @@ pub trait TurnCommands: Sized {
     /// Builds a [`TurnHandler`] that parses with [`parse_command`](Self::parse_command),
     /// looks targets up in `catalog`, and forwards every dispatch to `dispatch`.
     ///
+    /// The catalog is any [`TargetLookup`], such as a [`TargetCatalog`](crate::TargetCatalog)
+    /// that `targets!` declares or a [`DynamicTargetCatalog`](crate::DynamicTargetCatalog)
+    /// that firmware fills at run time.
+    ///
     /// The stored text that the agent suggests is ignored, and the original input is always
     /// checked. The callback runs the action on the firmware's devices and its result is
-    /// the turn's success or failure. Write a handler by hand when you need the suggestion.
+    /// the turn's success or failure. For a dynamic catalog, the callback must reject IDs for
+    /// devices that are no longer present: a previous-target command can reuse a remembered ID
+    /// without a new lookup. Write a handler by hand when you need the suggestion.
     fn handler<F, S, E>(
-        catalog: &TargetCatalog,
+        catalog: &(impl TargetLookup + ?Sized),
         dispatch: F,
     ) -> impl TurnHandler<Self, Success = S, Error = E>
     where
@@ -70,14 +76,15 @@ pub trait TurnCommands: Sized {
 }
 
 /// The adapter that [`TurnCommands::handler`] returns.
-struct CommandHandler<'c, T, F> {
-    catalog: &'c TargetCatalog,
+struct CommandHandler<'c, C: ?Sized, T, F> {
+    catalog: &'c C,
     dispatch: F,
     action: PhantomData<fn(T)>,
 }
 
-impl<T, F, S, E> TurnHandler<T> for CommandHandler<'_, T, F>
+impl<C, T, F, S, E> TurnHandler<T> for CommandHandler<'_, C, T, F>
 where
+    C: TargetLookup + ?Sized,
     T: TurnCommands,
     F: FnMut(T, &[TargetId]) -> Result<S, E>,
 {
@@ -90,6 +97,10 @@ where
 
     fn resolve_targets(&self, selector: &str) -> TargetMatch {
         self.catalog.resolve_targets(selector)
+    }
+
+    fn target_available(&self, target: TargetId) -> bool {
+        self.catalog.target_available(target)
     }
 
     fn matches_target(&self, target: TargetId, reply: &str) -> bool {
@@ -110,7 +121,11 @@ pub fn trim_sentence(text: &str) -> &str {
 /// Maps the text of a `{target}` capture to a selector.
 #[must_use]
 pub fn selector<'a>(target: &'a str, previous: Option<&str>) -> TargetSelector<'a> {
-    if previous.is_some_and(|word| target.eq_ignore_ascii_case(word)) {
+    if let Some(word) = previous
+        && let Some((head, suffix)) = target.split_at_checked(word.len())
+        && head.eq_ignore_ascii_case(word)
+        && trim_target_suffix(suffix).is_empty()
+    {
         TargetSelector::Previous
     } else {
         TargetSelector::Explicit(target)

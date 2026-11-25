@@ -1,10 +1,12 @@
-//! Checks that the reusable-buffer paths do not touch the heap once they are warm.
+//! Checks the allocation contracts of the reusable-buffer and lookup paths.
 
 #[path = "support/allocation_counter.rs"]
 mod allocation_counter;
 
 use allocation_counter::allocations_during;
-use esp_agent::{Agent, Embedder, Index, Knowledge, Model, Scratch, model};
+use esp_agent::{
+    Agent, DynamicTarget, DynamicTargetCatalog, Embedder, Index, Knowledge, Model, Scratch, model,
+};
 
 #[test]
 fn counter_sees_allocations() {
@@ -139,4 +141,54 @@ fn command_matcher_borrows_input_without_heap_allocation() {
         }),
         0
     );
+}
+
+#[test]
+fn dynamic_catalog_lookups_allocate_only_returned_target_lists() {
+    use std::hint::black_box;
+
+    let mut catalog = DynamicTargetCatalog::new();
+    catalog
+        .insert(DynamicTarget::new(1, "desk lamp").with_replies(["desk one"]))
+        .unwrap();
+    catalog.insert(DynamicTarget::new(2, "floor lamp")).unwrap();
+    catalog.insert_choice("lamp", [1, 2]).unwrap();
+    catalog.insert_group(["all lights"], [1, 2]).unwrap();
+
+    assert_eq!(
+        allocations_during(|| {
+            black_box(catalog.contains_selector(black_box(" THE LAMP?! ")));
+        }),
+        0,
+        "contains_selector"
+    );
+    assert_eq!(
+        allocations_during(|| {
+            black_box(catalog.matches_target(1, black_box(" THE DESK ONE?! ")));
+        }),
+        0,
+        "matches_target"
+    );
+    assert_eq!(
+        allocations_during(|| {
+            black_box(catalog.name(black_box(1)));
+        }),
+        0,
+        "name"
+    );
+
+    for (selector, expected) in [
+        (" THE UNKNOWN LAMP?! ", 0),
+        (" THE DESK LAMP?! ", 1),
+        (" THE LAMP?! ", 1),
+        (" THE ALL LIGHTS?! ", 1),
+    ] {
+        assert_eq!(
+            allocations_during(|| {
+                black_box(catalog.resolve_targets(black_box(selector)));
+            }),
+            expected,
+            "resolve_targets({selector:?})"
+        );
+    }
 }

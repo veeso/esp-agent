@@ -1,6 +1,9 @@
 //! Exercises the declarative catalog and command macros the way firmware uses them.
 
-use esp_agent::{TargetCatalog, TargetMatch, targets};
+use esp_agent::{
+    CatalogError, DynamicTarget, DynamicTargetCatalog, TargetCatalog, TargetLookup, TargetMatch,
+    target, targets,
+};
 
 static LIGHTS: TargetCatalog = targets! {
     device Desk = 1, "desk lamp" { replies ["near", "desk one"]; }
@@ -99,6 +102,26 @@ fn adapter_preserves_callback_errors_and_checks_input_despite_hints() {
     );
     assert!(adapter.matches_target(2, "near"));
     assert_eq!(adapter.dispatch(Op::Select, &[2]), Err("offline"));
+}
+
+#[test]
+fn adapter_accepts_concrete_and_erased_catalog_references() {
+    let catalog = LIGHTS;
+    let reference = &catalog;
+    let adapter = Op::handler::<_, (), ()>(&reference, |_, _| Ok(()));
+    assert_eq!(
+        adapter.resolve_targets("desk lamp"),
+        TargetMatch::Resolved(vec![1])
+    );
+    assert_eq!(
+        Op::handler(&&catalog, |_, _| Ok::<(), ()>(())).resolve_targets("floor lamp"),
+        TargetMatch::Resolved(vec![2])
+    );
+    let lookup: &dyn TargetLookup = &catalog;
+    assert_eq!(
+        Op::handler(lookup, |_, _| Ok::<(), ()>(())).resolve_targets("desk lamp"),
+        TargetMatch::Resolved(vec![1])
+    );
 }
 
 #[derive(Debug, PartialEq, Eq, TurnCommands)]
@@ -229,5 +252,873 @@ fn adapter_runs_a_complete_agent_turn() {
     assert_eq!(
         agent.turn("dim room to 37%", &mut adapter),
         TurnOutcome::Executed("both dimmed")
+    );
+}
+
+#[test]
+fn standard_handler_and_catalog_agree_on_spaced_trailing_punctuation() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::new(MODEL, &knowledge).unwrap();
+    let lights = runtime_lights(discovered());
+    let mut adapter = Op::handler(&lights, |action, ids| {
+        assert_eq!(action, Op::Select);
+        assert_eq!(ids, &[1]);
+        Ok::<(), ()>(())
+    });
+    assert_eq!(
+        agent.turn("select Desk Lamp ! ? .", &mut adapter),
+        TurnOutcome::Executed(())
+    );
+    assert_eq!(
+        lights.resolve_targets("Desk Lamp ! ? ."),
+        TargetMatch::Resolved(vec![1])
+    );
+}
+
+/// One discovery result, as a scan or a coordinator reports it at runtime.
+struct Discovered {
+    id: u32,
+    name: String,
+    aliases: Vec<String>,
+}
+
+fn discovered() -> Vec<Discovered> {
+    vec![
+        Discovered {
+            id: 1,
+            name: "desk lamp".into(),
+            aliases: vec!["near".into(), "desk one".into()],
+        },
+        Discovered {
+            id: 2,
+            name: "floor lamp".into(),
+            aliases: vec!["near".into()],
+        },
+    ]
+}
+
+/// Builds the runtime twin of `LIGHTS` from discovery results in any order.
+fn runtime_lights(devices: impl IntoIterator<Item = Discovered>) -> DynamicTargetCatalog {
+    let mut catalog = DynamicTargetCatalog::new();
+    for device in devices {
+        catalog
+            .insert(target!(device.id, device.name, replies = device.aliases))
+            .unwrap();
+    }
+    catalog.insert_choice(String::from("lamp"), [1, 2]).unwrap();
+    catalog
+        .insert_group(["room", "room lights"], [1, 2])
+        .unwrap();
+    catalog
+}
+
+#[test]
+fn runtime_catalog_answers_like_the_static_one() {
+    let empty = DynamicTargetCatalog::default();
+    let lights = runtime_lights(discovered());
+    for selector in [
+        " THE DESK LAMP?! ",
+        "floor lamp",
+        "lamp",
+        "the ROOM lights",
+        "room",
+        "desk one",
+        "near",
+        "garage",
+        "",
+        "the",
+    ] {
+        assert_eq!(
+            empty.resolve_targets(selector),
+            TargetMatch::Missing,
+            "{selector}"
+        );
+        assert!(!empty.contains_selector(selector), "{selector}");
+        assert_eq!(
+            lights.resolve_targets(selector),
+            LIGHTS.resolve_targets(selector),
+            "{selector}"
+        );
+        assert_eq!(
+            lights.contains_selector(selector),
+            LIGHTS.contains_selector(selector),
+            "{selector}"
+        );
+    }
+    for id in [1, 2, 3] {
+        assert_eq!(empty.name(id), None);
+        assert_eq!(lights.name(id), LIGHTS.name(id));
+        for reply in [
+            "the desk lamp",
+            "Desk one!",
+            "near",
+            "floor",
+            "lamp",
+            "room",
+        ] {
+            assert!(!empty.matches_target(id, reply));
+            assert_eq!(
+                lights.matches_target(id, reply),
+                LIGHTS.matches_target(id, reply),
+                "{id} {reply}"
+            );
+        }
+    }
+
+    let static_overlap = targets! {
+        device Desk = 1, "desk lamp" { replies ["desk one"]; }
+        device Other = 2, "desk one" {}
+    };
+    let mut runtime_overlap = DynamicTargetCatalog::new();
+    runtime_overlap
+        .insert(target!(1, "desk lamp", replies = ["desk one"]))
+        .unwrap();
+    runtime_overlap.insert(target!(2, "desk one")).unwrap();
+    for catalog in [&static_overlap as &dyn TargetLookup, &runtime_overlap] {
+        assert_eq!(
+            catalog.resolve_targets("desk one"),
+            TargetMatch::Resolved(vec![2])
+        );
+        assert!(catalog.matches_target(1, "desk one"));
+    }
+}
+
+#[test]
+fn runtime_catalog_rejects_conflicts_and_keeps_its_entries() {
+    use CatalogError::{
+        ConflictingSelector, DuplicateId, DuplicateMember, EmptyReply, EmptySelector, NoMembers,
+        NoPhrases, UnknownMember,
+    };
+    let mut lights = runtime_lights(discovered());
+    let probes = [
+        "",
+        "desk lamp",
+        "floor lamp",
+        "lamp",
+        "room",
+        "room lights",
+        "garage",
+        "hall",
+        "hall lights",
+        "porch",
+    ];
+    let snapshot = |lights: &DynamicTargetCatalog| {
+        (
+            probes.map(|probe| lights.resolve_targets(probe)),
+            [1, 2, 9].map(|id| lights.name(id).map(String::from)),
+            lights.matches_target(1, "desk one"),
+        )
+    };
+    let before = snapshot(&lights);
+    let conflict =
+        |phrase: &str| -> Result<(), CatalogError> { Err(ConflictingSelector(phrase.into())) };
+    type Insert = fn(&mut DynamicTargetCatalog) -> Result<(), CatalogError>;
+    let cases: [(Insert, _); _] = [
+        (
+            |lights| lights.insert(DynamicTarget::new(1, "garage")),
+            Err(DuplicateId(1)),
+        ),
+        (
+            |lights| lights.insert(DynamicTarget::new(9, "The Desk Lamp.")),
+            conflict("desk lamp"),
+        ),
+        (
+            |lights| lights.insert(DynamicTarget::new(9, "Desk Lamp ! ?")),
+            conflict("desk lamp"),
+        ),
+        (
+            |lights| lights.insert(DynamicTarget::new(9, "ROOM lights")),
+            conflict("room lights"),
+        ),
+        (
+            |lights| lights.insert(DynamicTarget::new(9, "The Lamp")),
+            conflict("lamp"),
+        ),
+        (
+            |lights| lights.insert(DynamicTarget::new(9, " ?! ")),
+            Err(EmptySelector),
+        ),
+        (
+            |lights| lights.insert(DynamicTarget::new(9, "garage").with_replies(["!"])),
+            Err(EmptyReply),
+        ),
+        (
+            |lights| lights.insert_choice("THE LAMP", [1]),
+            conflict("lamp"),
+        ),
+        (
+            |lights| lights.insert_choice("The Room Lights!", [1]),
+            conflict("room lights"),
+        ),
+        (
+            |lights| lights.insert_choice("THE FLOOR LAMP", [1]),
+            conflict("floor lamp"),
+        ),
+        (|lights| lights.insert_choice("", [1]), Err(EmptySelector)),
+        (|lights| lights.insert_choice("porch", []), Err(NoMembers)),
+        (
+            |lights| lights.insert_choice("porch", [2, 2]),
+            Err(DuplicateMember(2)),
+        ),
+        (
+            |lights| lights.insert_choice("porch", [1, 9]),
+            Err(UnknownMember(9)),
+        ),
+        (
+            |lights| lights.insert_group(["hall", "the HALL"], [1]),
+            conflict("hall"),
+        ),
+        (
+            |lights| lights.insert_group(["hall", "floor lamp"], [1]),
+            conflict("floor lamp"),
+        ),
+        (
+            |lights| lights.insert_group(["hall", "lamp"], [1]),
+            conflict("lamp"),
+        ),
+        (
+            |lights| lights.insert_group(["hall", "The Room Lights!"], [2]),
+            conflict("room lights"),
+        ),
+        (
+            |lights| lights.insert_group(["hall", "hall lights"], [1, 9]),
+            Err(UnknownMember(9)),
+        ),
+        (|lights| lights.insert_group([""], [1]), Err(EmptySelector)),
+        (
+            |lights| lights.insert_group(Vec::<&str>::new(), [1]),
+            Err(NoPhrases),
+        ),
+        (|lights| lights.insert_group(["hall"], []), Err(NoMembers)),
+        (
+            |lights| lights.insert_group(["hall"], [2, 2]),
+            Err(DuplicateMember(2)),
+        ),
+    ];
+    for (index, (insert, expected)) in cases.into_iter().enumerate() {
+        assert_eq!(insert(&mut lights), expected, "case {index}");
+        assert_eq!(snapshot(&lights), before, "case {index}");
+    }
+    assert!(lights.remove(2).is_some());
+    assert_eq!(lights.resolve_targets("floor lamp"), TargetMatch::Missing);
+}
+
+#[test]
+fn runtime_catalog_stops_at_a_conflicting_group_phrase() {
+    let mut lights = runtime_lights(discovered());
+    let phrases = ["hall", "the FLOOR LAMP"]
+        .into_iter()
+        .chain(core::iter::once_with(|| {
+            panic!("polled past conflicting phrase")
+        }));
+    let members = core::iter::once_with(|| panic!("polled members after rejecting a phrase"));
+    assert_eq!(
+        lights.insert_group(phrases, members),
+        Err(CatalogError::ConflictingSelector("floor lamp".into()))
+    );
+    assert_eq!(lights.resolve_targets("hall"), TargetMatch::Missing);
+    assert_eq!(
+        lights.resolve_targets("floor lamp"),
+        TargetMatch::Resolved(vec![2])
+    );
+}
+
+#[test]
+fn runtime_catalog_stops_at_an_unknown_member() {
+    let mut lights = runtime_lights(discovered());
+    let members = || {
+        [1, 9].into_iter().chain(core::iter::once_with(|| {
+            panic!("polled past unknown member")
+        }))
+    };
+    assert_eq!(
+        lights.insert_choice("porch", members()),
+        Err(CatalogError::UnknownMember(9))
+    );
+    assert_eq!(
+        lights.insert_group(["hall"], members()),
+        Err(CatalogError::UnknownMember(9))
+    );
+    assert_eq!(lights.resolve_targets("porch"), TargetMatch::Missing);
+    assert_eq!(lights.resolve_targets("hall"), TargetMatch::Missing);
+    assert_eq!(
+        lights.resolve_targets("lamp"),
+        TargetMatch::Ambiguous(vec![1, 2])
+    );
+    assert_eq!(
+        lights.resolve_targets("room"),
+        TargetMatch::Resolved(vec![1, 2])
+    );
+}
+
+#[test]
+fn repeated_group_phrase_diagnostic_does_not_claim_it_is_already_cataloged() {
+    let mut lights = runtime_lights(discovered());
+    let error = lights.insert_group(["hall", "the HALL"], [1]).unwrap_err();
+    assert!(!lights.contains_selector("hall"));
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("repeated"), "{diagnostic}");
+}
+
+#[test]
+fn runtime_catalog_dispatches_names_and_groups_through_the_handler() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::new(MODEL, &knowledge).unwrap();
+    let mut lights = DynamicTargetCatalog::new();
+    for (id, name) in [
+        (0, "entrée lamp"),
+        (u32::MAX, "floor lamp"),
+        (7, "desk lamp"),
+    ] {
+        lights.insert(target!(id, String::from(name))).unwrap();
+    }
+    lights
+        .insert_group(["room lights"], [u32::MAX, 0, 7])
+        .unwrap();
+    let mut calls = Vec::new();
+    let mut handler = Op::handler(&lights, |action, ids: &[u32]| {
+        calls.push((action, ids.to_vec()));
+        Ok::<_, ()>(())
+    });
+    assert_eq!(
+        agent.turn("dim the ENTRéE LAMP to 5%", &mut handler),
+        TurnOutcome::Executed(())
+    );
+    assert_eq!(
+        agent.turn("dim room lights to 37%", &mut handler),
+        TurnOutcome::Executed(())
+    );
+    drop(handler);
+    assert_eq!(
+        calls,
+        [
+            (Op::Dim { level: Level(5) }, vec![0]),
+            (Op::Dim { level: Level(37) }, vec![u32::MAX, 0, 7])
+        ]
+    );
+}
+
+#[test]
+fn runtime_choice_clarifies_and_a_reply_alias_answers_after_a_refresh() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::builder(MODEL, &knowledge)
+        .context(2)
+        .build()
+        .unwrap();
+    let lights = runtime_lights(discovered());
+    let mut handler = Op::handler(&lights, |_, _: &[u32]| -> Result<(), ()> {
+        panic!("a choice must not dispatch before the user answers")
+    });
+    assert_eq!(
+        agent.turn("dim lamp to 20%", &mut handler),
+        TurnOutcome::Clarify(vec![1, 2])
+    );
+    drop(handler);
+    // The coordinator reports the devices again, in another order and with the same IDs.
+    let mut devices = discovered();
+    devices[0].aliases.push("bureau près".into());
+    let refreshed = runtime_lights(devices.into_iter().rev());
+    let mut calls = Vec::new();
+    let mut handler = Op::handler(&refreshed, |action, ids: &[u32]| {
+        calls.push((action, ids.to_vec()));
+        Ok::<_, ()>("dimmed")
+    });
+    assert_eq!(
+        agent.turn("bureau près", &mut handler),
+        TurnOutcome::Executed("dimmed")
+    );
+    drop(handler);
+    assert_eq!(calls, [(Op::Dim { level: Level(20) }, vec![1])]);
+}
+
+#[test]
+fn runtime_catalog_removes_and_clears_entries() {
+    use TargetMatch::{Ambiguous, Missing, Resolved};
+    let mut lights = runtime_lights(discovered());
+    lights.insert_group(["desk corner"], [1]).unwrap();
+    lights.insert_choice("reading lamp", [1]).unwrap();
+    let before: Vec<_> = ["desk lamp", "lamp", "room"]
+        .map(|s| lights.resolve_targets(s))
+        .into();
+    assert_eq!(lights.remove(9), None);
+    assert_eq!(
+        before,
+        ["desk lamp", "lamp", "room"].map(|s| lights.resolve_targets(s))
+    );
+    assert_eq!(
+        lights.remove(1),
+        Some(DynamicTarget::new(1, "desk lamp").with_replies(["near", "desk one"]))
+    );
+    assert_eq!(lights.remove(1), None);
+    for (selector, expected) in [
+        ("desk lamp", Missing),
+        ("floor lamp", Resolved(vec![2])),
+        ("lamp", Ambiguous(vec![2])),
+        ("room lights", Resolved(vec![2])),
+        // The group and choice lost their only member and were dropped.
+        ("desk corner", Missing),
+        ("reading lamp", Missing),
+    ] {
+        assert_eq!(lights.resolve_targets(selector), expected, "{selector}");
+    }
+    assert_eq!(lights.name(1), None);
+    assert!(!lights.matches_target(1, "desk one"));
+    assert!(lights.matches_target(2, "near"));
+    lights.insert_choice("reading lamp", [2]).unwrap();
+    assert_eq!(lights.resolve_targets("reading lamp"), Ambiguous(vec![2]));
+    // The ID, the name, and the phrase of the dropped group are free again.
+    lights.insert(DynamicTarget::new(1, "desk lamp")).unwrap();
+    lights.insert_group(["desk corner"], [1]).unwrap();
+    assert_eq!(lights.resolve_targets("desk corner"), Resolved(vec![1]));
+    lights.clear();
+    for selector in ["desk lamp", "floor lamp", "lamp", "room", "desk corner"] {
+        assert_eq!(lights.resolve_targets(selector), Missing, "{selector}");
+    }
+    assert!(
+        [1, 2]
+            .iter()
+            .all(|&id| lights.name(id).is_none() && !lights.matches_target(id, "near"))
+    );
+    // A cleared catalog accepts the same entries again.
+    lights.insert(DynamicTarget::new(2, "floor lamp")).unwrap();
+    lights.insert_choice("lamp", [2]).unwrap();
+    assert_eq!(lights.resolve_targets("lamp"), Ambiguous(vec![2]));
+}
+
+#[test]
+fn refreshing_a_device_replaces_and_clears_its_reply_aliases() {
+    let mut lights = runtime_lights(discovered());
+    assert!(lights.matches_target(1, "desk one"));
+
+    let desk = lights.remove(1).unwrap().with_replies(["bureau"]);
+    lights.insert(desk).unwrap();
+    assert!(lights.matches_target(1, "bureau"));
+    assert!(!lights.matches_target(1, "desk one"));
+
+    let desk = lights
+        .remove(1)
+        .unwrap()
+        .with_replies(core::iter::empty::<&str>());
+    lights.insert(desk).unwrap();
+    assert!(!lights.matches_target(1, "bureau"));
+    assert!(lights.matches_target(1, "desk lamp"));
+}
+
+fn three_lamps() -> DynamicTargetCatalog {
+    let mut lights = DynamicTargetCatalog::new();
+    lights.insert(target!(1, "desk lamp")).unwrap();
+    lights.insert(target!(2, "floor lamp")).unwrap();
+    lights
+        .insert(target!(3, "wall lamp", ["wall one"]))
+        .unwrap();
+    lights.insert_choice("lamp", [1, 2, 3]).unwrap();
+    lights.insert_group(["room"], [1, 2, 3]).unwrap();
+    lights
+}
+
+#[test]
+fn pending_choice_keeps_members_after_a_missing_middle_member() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::builder(MODEL, &knowledge)
+        .context(3)
+        .build()
+        .unwrap();
+    let mut lights = three_lamps();
+    let dispatch = |_, ids: &[u32]| Ok::<_, ()>(ids.to_vec());
+    assert_eq!(
+        agent.turn("dim lamp to 20%", &mut Op::handler(&lights, dispatch)),
+        TurnOutcome::Clarify(vec![1, 2, 3])
+    );
+    lights.remove(2).unwrap();
+    let mut handler = Op::handler(&lights, dispatch);
+    assert_eq!(
+        agent.turn("floor lamp", &mut handler),
+        TurnOutcome::Clarify(vec![1, 3])
+    );
+    assert_eq!(
+        agent.turn("wall one", &mut handler),
+        TurnOutcome::Executed(vec![3])
+    );
+}
+
+#[test]
+fn remembered_group_only_offers_members_that_are_still_available() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    for (removed, previous, reply) in [
+        (
+            &[2][..],
+            TurnOutcome::Clarify(vec![1, 3]),
+            TurnOutcome::Executed(vec![3]),
+        ),
+        (
+            &[1, 2],
+            TurnOutcome::Clarify(vec![3]),
+            TurnOutcome::Executed(vec![3]),
+        ),
+        (
+            &[1, 2, 3],
+            TurnOutcome::NeedTarget,
+            TurnOutcome::Unrecognized,
+        ),
+    ] {
+        let mut agent = Agent::builder(MODEL, &knowledge)
+            .context(3)
+            .build()
+            .unwrap();
+        let mut lights = three_lamps();
+        let mut handler = Op::handler(&lights, |action, ids: &[u32]| {
+            assert_eq!(action, Op::Select);
+            assert_eq!(ids, [1, 2, 3]);
+            Ok::<_, ()>(())
+        });
+        assert_eq!(
+            agent.turn("select room", &mut handler),
+            TurnOutcome::Executed(())
+        );
+        drop(handler);
+
+        for &id in removed {
+            lights.remove(id).unwrap();
+        }
+        let no_dispatch = |_, ids: &[u32]| -> Result<Vec<u32>, ()> {
+            panic!("dispatched to {ids:?} before the user answered; removed {removed:?}")
+        };
+        assert_eq!(
+            agent.turn("dim that to 20%", &mut Op::handler(&lights, no_dispatch)),
+            previous,
+            "removed {removed:?}"
+        );
+        let mut handler = Op::handler(&lights, |action, ids: &[u32]| {
+            assert_eq!(action, Op::Dim { level: Level(20) });
+            Ok::<_, ()>(ids.to_vec())
+        });
+        assert_eq!(
+            agent.turn("wall one", &mut handler),
+            reply,
+            "removed {removed:?}"
+        );
+    }
+}
+
+#[test]
+fn removed_remembered_device_reaches_the_callback_for_rejection() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::builder(MODEL, &knowledge)
+        .context(2)
+        .build()
+        .unwrap();
+    let mut lights = runtime_lights(discovered());
+    let mut handler = Op::handler(&lights, |_, _| Ok::<_, &str>(()));
+    assert_eq!(
+        agent.turn("select floor lamp", &mut handler),
+        TurnOutcome::Executed(())
+    );
+    drop(handler);
+
+    lights.remove(2).unwrap();
+    let mut handler = Op::handler(&lights, |action, ids| {
+        assert_eq!(action, Op::Select);
+        assert_eq!(ids, [2]);
+        assert_eq!(lights.name(ids[0]), None);
+        Err::<(), _>("offline")
+    });
+    assert_eq!(
+        agent.turn("select that", &mut handler),
+        TurnOutcome::Failed("offline")
+    );
+}
+
+#[test]
+fn rediscovered_device_does_not_rejoin_a_narrowed_pending_question() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::builder(MODEL, &knowledge)
+        .context(2)
+        .build()
+        .unwrap();
+    let mut lights = runtime_lights(discovered());
+    let no_dispatch = |_, _: &[u32]| -> Result<(), ()> {
+        panic!("a choice must not dispatch before the user answers")
+    };
+    assert_eq!(
+        agent.turn("dim lamp to 20%", &mut Op::handler(&lights, no_dispatch)),
+        TurnOutcome::Clarify(vec![1, 2])
+    );
+    // The floor lamp disappears from the network before the user answers.
+    let floor = lights.remove(2).unwrap();
+    let lookup: &dyn TargetLookup = &lights;
+    assert_eq!(
+        agent.turn("floor lamp", &mut Op::handler(&lookup, no_dispatch)),
+        TurnOutcome::Clarify(vec![1])
+    );
+    // Rediscovery restores the shared alias, but the last question only offered the desk lamp.
+    lights.insert(floor).unwrap();
+    let mut calls = Vec::new();
+    let mut handler = Op::handler(&lights, |action, ids: &[u32]| {
+        calls.push((action, ids.to_vec()));
+        Ok::<_, ()>(())
+    });
+    assert_eq!(agent.turn("near", &mut handler), TurnOutcome::Executed(()));
+    drop(handler);
+    assert_eq!(calls, [(Op::Dim { level: Level(20) }, vec![1])]);
+}
+
+#[test]
+fn sentence_punctuation_does_not_dispatch_to_a_device_named_like_the_previous_word() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+
+    #[derive(TurnCommands)]
+    #[commands(previous = "it")]
+    enum Action {
+        #[command("select {target}")]
+        Select,
+    }
+
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::builder(MODEL, &knowledge)
+        .context(2)
+        .build()
+        .unwrap();
+    let mut catalog = DynamicTargetCatalog::new();
+    catalog.insert(target!(1, "desk")).unwrap();
+    catalog.insert(target!(2, "it")).unwrap();
+    let mut handler = Action::handler(&catalog, |_, ids| Ok::<_, ()>(ids.to_vec()));
+    for (input, expected) in [
+        ("select desk", 1),
+        ("select it?!", 1),
+        ("select it . ! ?", 1),
+        ("select the it", 2),
+    ] {
+        assert_eq!(
+            agent.turn(input, &mut handler),
+            TurnOutcome::Executed(vec![expected]),
+            "{input}"
+        );
+    }
+}
+
+#[test]
+fn configured_previous_punctuation_is_preserved_before_trailing_marks() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+
+    #[derive(TurnCommands)]
+    #[commands(previous = "it!")]
+    enum Action {
+        #[command("pick {target} now")]
+        Pick,
+    }
+
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::builder(MODEL, &knowledge)
+        .context(1)
+        .build()
+        .unwrap();
+    let mut catalog = DynamicTargetCatalog::new();
+    catalog.insert(target!(1, "desk")).unwrap();
+    catalog.insert(target!(2, "it")).unwrap();
+    catalog.insert(target!(3, "ité")).unwrap();
+    let mut handler = Action::handler(&catalog, |_, ids| Ok::<_, ()>(ids.to_vec()));
+    for (input, expected) in [
+        ("pick desk now", 1),
+        ("pick it! now", 1),
+        ("pick IT! ? now", 1),
+        ("pick it now", 2),
+        ("pick ité now", 3),
+    ] {
+        assert_eq!(
+            agent.turn(input, &mut handler),
+            TurnOutcome::Executed(vec![expected]),
+            "{input}"
+        );
+    }
+}
+
+#[test]
+fn removing_all_dynamic_choices_clears_the_pending_question() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::builder(MODEL, &knowledge)
+        .context(2)
+        .build()
+        .unwrap();
+    let mut lights = runtime_lights(discovered());
+    let dispatch = |_, _: &[u32]| -> Result<(), ()> { panic!("no choice was made") };
+    let mut handler = Op::handler(&lights, dispatch);
+    assert_eq!(
+        agent.turn("dim lamp to 20%", &mut handler),
+        TurnOutcome::Clarify(vec![1, 2])
+    );
+    drop(handler);
+    lights.clear();
+    let mut handler = Op::handler(&lights, dispatch);
+    assert_eq!(
+        agent.turn("desk one", &mut handler),
+        TurnOutcome::NeedTarget
+    );
+    assert_eq!(agent.turn("near", &mut handler), TurnOutcome::Unrecognized);
+}
+
+#[test]
+fn switching_static_catalogs_does_not_prune_pending_choices() {
+    use esp_agent::{Agent, Embedder, Knowledge, Model, TurnOutcome, model};
+    static MODEL: Model = model!("tests/fixtures/tiny-2d");
+    static DESK_ONLY: TargetCatalog = targets! { device Desk = 1, "desk lamp" {} };
+    let knowledge = Knowledge::new(Embedder::new(MODEL));
+    let mut agent = Agent::builder(MODEL, &knowledge)
+        .context(2)
+        .build()
+        .unwrap();
+    let dispatch = |_, _: &[u32]| -> Result<(), ()> { panic!("no choice was made") };
+    assert_eq!(
+        agent.turn("dim lamp to 20%", &mut Op::handler(&LIGHTS, dispatch)),
+        TurnOutcome::Clarify(vec![1, 2])
+    );
+    assert_eq!(
+        agent.turn("floor lamp", &mut Op::handler(&DESK_ONLY, dispatch)),
+        TurnOutcome::Clarify(vec![1, 2])
+    );
+}
+
+#[test]
+fn target_macro_owns_borrowed_temporary_arguments() {
+    let id = 8;
+    let entry = target!(
+        id,
+        format!("lamp {id}").as_str(),
+        replies = [format!("alias {id}")].iter(),
+    );
+    let mut catalog = DynamicTargetCatalog::new();
+    catalog.insert(entry).unwrap();
+    assert_eq!(catalog.name(id), Some("lamp 8"));
+    assert!(catalog.matches_target(id, "alias 8"));
+}
+
+#[test]
+fn target_macro_accepts_positional_and_named_fields() {
+    let hall = String::from("hall light");
+    let hall_aliases = vec![String::from("hall one")];
+    let mut catalog = DynamicTargetCatalog::new();
+    for entry in [
+        target!(1, "desk lamp", ["desk one"]),
+        target!(2, "floor lamp"),
+        target!(3, &hall, replies = &hall_aliases),
+        target!(
+            replies = vec!["porch one"],
+            name = String::from("porch light"),
+            id = 4,
+        ),
+        target!(5, name = "attic light", replies = ["attic one"]),
+        target!(id = 6, name = "cellar light"),
+        target!(
+            replies = [&String::from("garden one")],
+            id = 7,
+            name = "garden light"
+        ),
+        target!(
+            r#name = "kitchen light",
+            r#id = 8,
+            r#replies = ["kitchen one"]
+        ),
+    ] {
+        catalog.insert(entry).unwrap();
+    }
+    for (id, name, alias) in [
+        (1, "desk lamp", Some("desk one")),
+        (2, "floor lamp", None),
+        (3, "hall light", Some("hall one")),
+        (4, "porch light", Some("porch one")),
+        (5, "attic light", Some("attic one")),
+        (6, "cellar light", None),
+        (7, "garden light", Some("garden one")),
+        (8, "kitchen light", Some("kitchen one")),
+    ] {
+        assert_eq!(catalog.name(id), Some(name));
+        assert_eq!(
+            catalog.resolve_targets(name),
+            TargetMatch::Resolved(vec![id])
+        );
+        if let Some(alias) = alias {
+            assert!(catalog.matches_target(id, alias), "{alias}");
+            assert_eq!(catalog.resolve_targets(alias), TargetMatch::Missing);
+        }
+    }
+}
+
+#[test]
+fn target_macro_evaluates_arguments_once_in_source_order() {
+    use core::cell::Cell;
+
+    let id = Cell::new(8);
+    let mut calls = Vec::new();
+    let entry = target!(
+        replies = {
+            calls.push("replies");
+            ["second one"]
+        },
+        name = {
+            calls.push("name");
+            id.set(9);
+            "second lamp"
+        },
+        id = {
+            calls.push("id");
+            id.get()
+        },
+    );
+    let mut catalog = DynamicTargetCatalog::new();
+    catalog.insert(entry).unwrap();
+    assert_eq!(calls, ["replies", "name", "id"]);
+    assert_eq!(
+        catalog.resolve_targets("second lamp"),
+        TargetMatch::Resolved(vec![9])
+    );
+    assert!(catalog.matches_target(9, "second one"));
+}
+
+#[test]
+#[expect(non_upper_case_globals, reason = "Matches generated parameter names")]
+fn target_macro_does_not_resolve_its_bindings_to_caller_constants() {
+    const id: u32 = 17;
+    const name: &str = "desk";
+    const replies: &str = "desk one";
+
+    let mut catalog = DynamicTargetCatalog::new();
+    catalog
+        .insert(target!(id - 16, format!("{name} lamp"), [replies]))
+        .unwrap();
+    assert_eq!(catalog.name(1), Some("desk lamp"));
+    assert!(catalog.matches_target(1, "desk one"));
+}
+
+#[test]
+fn target_macro_preserves_the_callers_dynamic_target_name() {
+    struct DynamicTarget;
+    impl DynamicTarget {
+        const ID: u32 = 17;
+    }
+
+    let mut catalog = DynamicTargetCatalog::new();
+    catalog
+        .insert(target!(DynamicTarget::ID, "desk lamp"))
+        .unwrap();
+    assert_eq!(
+        catalog.resolve_targets("desk lamp"),
+        TargetMatch::Resolved(vec![17])
     );
 }

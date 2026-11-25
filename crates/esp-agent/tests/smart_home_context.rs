@@ -22,6 +22,7 @@ enum Action {
 struct House {
     calls: Vec<(Action, Vec<TargetId>)>,
     fail: bool,
+    floor_removed: bool,
     suggestions: RefCell<Vec<Option<Action>>>,
 }
 
@@ -65,6 +66,9 @@ impl TurnHandler<Action> for House {
     }
 
     fn matches_target(&self, target: TargetId, reply: &str) -> bool {
+        if target == FLOOR && self.floor_removed {
+            return false;
+        }
         matches!(
             (target, reply),
             (DESK, "The desk one" | "desk lamp" | "lamp")
@@ -162,6 +166,23 @@ fn clarification_retains_the_original_brightness_argument() {
         TurnOutcome::Executed(Action::SetBrightness(40))
     );
     assert_eq!(house.calls, [(Action::SetBrightness(40), vec![FLOOR])]);
+}
+
+#[test]
+fn custom_handler_that_does_not_report_availability_keeps_pending_choices() {
+    let knowledge = knowledge();
+    let mut agent = contextual_agent(&knowledge, 2);
+    let mut house = House::default();
+    assert_eq!(
+        agent.turn("Turn on the lamp", &mut house),
+        TurnOutcome::Clarify(vec![DESK, FLOOR])
+    );
+    house.floor_removed = true;
+    assert_eq!(
+        agent.turn("The floor one", &mut house),
+        TurnOutcome::Clarify(vec![DESK, FLOOR])
+    );
+    assert!(house.calls.is_empty());
 }
 
 #[test]

@@ -26,6 +26,11 @@ original input, including every argument, before returning a command.
   Each device has a stable `TargetId`. `TargetMatch::Resolved` names the
   devices that act together, `Ambiguous` offers alternatives for the user to
   choose from, and `Missing` indicates that the selector matched no device.
+- `target_available` is an optional check before offering members of a
+  remembered group or matching a clarification reply. The default keeps every
+  choice. If your catalog changes, return `false` for missing devices. When no
+  choices remain, the agent returns `NeedTarget` without keeping a pending
+  question.
 - `matches_target` checks whether a clarification reply identifies a device
   in the choices offered. Exactly one match is needed to continue.
 - `dispatch` runs the action once on the resolved targets. It checks that
@@ -53,8 +58,9 @@ set to zero, explicit commands still work.
 A successful dispatch replaces the remembered targets or clears them if the
 whole list exceeds `n`. A failed dispatch preserves the previous targets.
 “It” resolves directly when one target is remembered. If a group is remembered,
-the agent asks the user to choose. With no remembered targets, it requests a
-more specific command.
+the agent asks the user to choose from members that are still available. If no
+members remain or no targets are remembered, it requests a new command with a
+more specific target (`NeedTarget`).
 
 Each agent owns its conversation state. It can be cloned when its payload is
 `Clone`, and each clone keeps an independent conversation. `Agent` never

@@ -4,6 +4,10 @@ use core::slice;
 
 use crate::context::{TargetId, TargetMatch};
 
+mod dynamic;
+
+pub use dynamic::{CatalogError, DynamicTarget, DynamicTargetCatalog};
+
 /// One device as `targets!` lays it out in flash.
 #[derive(Debug, Clone, Copy)]
 pub struct RawDevice {
@@ -45,6 +49,54 @@ pub struct RawCatalog {
 #[derive(Debug, Clone, Copy)]
 pub struct TargetCatalog {
     raw: RawCatalog,
+}
+
+/// The lookups a turn handler makes in a catalog of devices.
+///
+/// [`TargetCatalog`] and [`DynamicTargetCatalog`] implement it, and
+/// [`TurnCommands::handler`](crate::TurnCommands::handler) accepts either.
+pub trait TargetLookup {
+    /// Looks up the devices that a command's `selector` names.
+    fn resolve_targets(&self, selector: &str) -> TargetMatch;
+
+    /// Returns whether `target` can still be offered in a clarification.
+    ///
+    /// The standard handler passes this result to
+    /// [`TurnHandler::target_available`](crate::TurnHandler::target_available). The default
+    /// keeps every choice. Mutable catalogs can return `false` for removed devices.
+    fn target_available(&self, _target: TargetId) -> bool {
+        true
+    }
+
+    /// Tells whether `reply` picks the device `target` out of the choices of a question.
+    fn matches_target(&self, target: TargetId, reply: &str) -> bool;
+}
+
+impl<T> TargetLookup for &T
+where
+    T: TargetLookup + ?Sized,
+{
+    fn resolve_targets(&self, selector: &str) -> TargetMatch {
+        T::resolve_targets(self, selector)
+    }
+
+    fn target_available(&self, target: TargetId) -> bool {
+        T::target_available(self, target)
+    }
+
+    fn matches_target(&self, target: TargetId, reply: &str) -> bool {
+        T::matches_target(self, target, reply)
+    }
+}
+
+impl TargetLookup for TargetCatalog {
+    fn resolve_targets(&self, selector: &str) -> TargetMatch {
+        TargetCatalog::resolve_targets(self, selector)
+    }
+
+    fn matches_target(&self, target: TargetId, reply: &str) -> bool {
+        TargetCatalog::matches_target(self, target, reply)
+    }
 }
 
 /// Identifiers borrowed from the catalog before the turn takes ownership of its target list.
@@ -135,11 +187,17 @@ fn same(declared: &str, other: &str) -> bool {
     normalize(declared).eq_ignore_ascii_case(other)
 }
 
+/// Removes trailing whitespace and sentence punctuation from a target phrase.
+pub(crate) fn trim_target_suffix(text: &str) -> &str {
+    text.trim_end_matches(|ch: char| ch.is_whitespace() || matches!(ch, '.' | '!' | '?'))
+}
+
 /// Removes outer whitespace, trailing sentence punctuation and one leading "the".
 ///
 /// Keep this in step with `normalize` in the macro crate, which applies it at build time.
 fn normalize(text: &str) -> &str {
-    let text = text.trim().trim_end_matches(['.', '!', '?']).trim_end();
+    // The command parser may already have removed part of this suffix.
+    let text = trim_target_suffix(text.trim_start());
     match text.get(..4) {
         Some(article) if article.eq_ignore_ascii_case("the ") => text[4..].trim_start(),
         _ => text,
