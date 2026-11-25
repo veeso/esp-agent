@@ -2,12 +2,19 @@
 members = ["crates/*", "examples/semantic-search"]
 resolver = "3"
 
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+homepage = "https://esp-agent.veeso.dev"
+license = "Apache-2.0"
+repository = "https://github.com/veeso/esp-agent"
+rust-version = "1.97"
+
 [workspace.dependencies]
 criterion = "0.8"
-critical-section = "1.2"
+critical-section = "1"
 esp-agent = { path = "crates/esp-agent" }
-# Exact pin: the expansion of `model!` must match this version of the library.
-esp-agent-macros = { path = "crates/esp-agent-macros", version = "=0.1.0" }
+esp-agent-macros = { path = "crates/esp-agent-macros", version = "0.1" }
 esp-alloc = "0.11"
 esp-backtrace = "0.20"
 esp-bootloader-esp-idf = "0.6"
@@ -15,13 +22,13 @@ esp-bootloader-esp-idf = "0.6"
 esp-hal = "1.2.2, <1.3.0"
 esp-println = "0.18"
 libm = { version = "0.2", default-features = false }
-log = "0.4.27"
+log = "0.4"
 proc-macro-crate = "3"
 proc-macro2 = "1"
 quote = "1"
 serde = "1"
 serde_json = "1"
-syn = "2"
+syn = "3"
 tempfile = { version = "3", default-features = false }
 unicode-normalization = { version = "0.1", default-features = false }
 unicode-properties = { version = "0.1", default-features = false }

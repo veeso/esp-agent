@@ -5,7 +5,7 @@
 [![TruffleHog](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml)
 [![zizmor](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
-[![Docs](https://img.shields.io/badge/docs-veeso.github.io-blue)](https://veeso.github.io/esp-agent/)
+[![Docs](https://img.shields.io/badge/docs-esp--agent.veeso.dev-blue)](https://esp-agent.veeso.dev)
 
 A bare-metal (`no_std`, Rust) local agent library for ESP32-S3 and ESP32-S31.
 
@@ -24,7 +24,7 @@ its 7.2 MiB embedding table (F32, 29,528 tokens x 64 dims) and tokenizer
 vocabulary in place from flash. A reusable `Scratch` retains heap capacity between
 queries. Calls that fit those buffers need no new allocation for scratch data.
 
-Read the [documentation website](https://veeso.github.io/esp-agent/) for guides
+Read the [documentation website](https://esp-agent.veeso.dev) for guides
 to choosing a model, searching stored texts, and handling conversation turns.
 
 ## Use it as a library

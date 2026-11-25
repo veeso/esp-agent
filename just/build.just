@@ -7,7 +7,7 @@ s31_target := "--target riscv32imafc-unknown-none-elf"
 # Cargo flags that select the ESP32-S31 target and the example chip feature.
 s31_flags := s31_target + " --no-default-features --features " + example + "/esp32s31"
 
-# Standard Rust toolchain for regular computers; keep it equal to `rust-version`.
+# Standard Rust toolchain for regular computers; keep it equal to `workspace.package.rust-version`.
 host_toolchain := "1.97"
 
 # Cargo toolchain override for regular computers, which bypasses the ESP toolchain in rust-toolchain.toml.

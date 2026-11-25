@@ -23,14 +23,19 @@ scripts, and the heap belong to the firmware that uses the library.
 
 The toolchain is the espup `esp` toolchain 1.97.0.0 with edition 2024. Keep
 `rust-toolchain.toml`, the `version:` input of `esp-rs/xtensa-toolchain` in
-`.github/workflows/ci.yml`, and `package.rust-version` in each crate and example
-manifest synchronized.
+`.github/workflows/ci.yml`, and `workspace.package.rust-version` in the root
+`Cargo.toml` synchronized.
+
+Shared package metadata (`version`, `edition`, `homepage`, `license`,
+`repository`, and `rust-version`) lives in `[workspace.package]`, and every
+member inherits it. Members declare only what is specific to them, such as
+`name`, `description`, `categories`, and `keywords`.
 
 The library also builds and tests on regular computers with the standard Rust
 toolchain 1.97, through `just build_host` and `just test`. Keep `host_toolchain`
 in `just/build.just` and `RUSTUP_TOOLCHAIN` of the `host` job in
 `.github/workflows/ci.yml` and of the `benchmark` job in
-`.github/workflows/benchmark.yml` equal to `package.rust-version`. Library code must
+`.github/workflows/benchmark.yml` equal to `workspace.package.rust-version`. Library code must
 keep building for the host target as well as for both chips.
 
 ## Working rules
