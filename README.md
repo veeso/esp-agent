@@ -39,16 +39,7 @@ a Git dependency:
 
 ```toml
 [dependencies]
-esp-agent = { git = "https://github.com/veeso/esp-agent" }
-```
-
-If your firmware uses a local checkout, append `crates/esp-agent` to
-the dependency path that previously pointed to the repository root. For a
-sibling checkout, use this entry in your firmware's `Cargo.toml`:
-
-```toml
-[dependencies]
-esp-agent = { path = "../esp-agent/crates/esp-agent" }
+esp-agent = "0.1"
 ```
 
 Then embed text from your firmware:

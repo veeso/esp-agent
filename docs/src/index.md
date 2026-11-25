@@ -21,7 +21,7 @@ Add the library to your firmware as a Git dependency.
 
 ```toml
 [dependencies]
-esp-agent = { git = "https://github.com/veeso/esp-agent" }
+esp-agent = "0.1"
 ```
 
 [Download a model](models.md#download-a-model) into `model/` in your firmware
