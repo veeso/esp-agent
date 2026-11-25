@@ -67,6 +67,8 @@ jobs:
         run: |
           rustc --print target-list | grep -Fx riscv32imafc-unknown-none-elf
           test -d "$(rustc --print sysroot)/lib/rustlib/src/rust/library"
+      - name: Update lockfile
+        run: just lock
       - name: Build
         env:
           SUFFIX: ${{ matrix.suffix }}
@@ -99,6 +101,8 @@ jobs:
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
         with:
           just-version: "1.59.0"
+      - name: Update lockfile
+        run: just lock
       - name: Build documentation
         run: just doc
 
@@ -126,6 +130,8 @@ jobs:
         uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-llvm-cov
+      - name: Update lockfile
+        run: just lock
       - name: Build
         run: just build_host
       - name: Lint benchmarks
