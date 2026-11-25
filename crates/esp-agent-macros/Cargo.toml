@@ -1,10 +1,11 @@
 [package]
 name = "esp-agent-macros"
-version = "0.1.0"
-edition = "2024"
-license = "Apache-2.0"
-repository = "https://github.com/veeso/esp-agent"
-rust-version = "1.97"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "Compile-time model embedding for esp-agent"
 
 [dependencies]

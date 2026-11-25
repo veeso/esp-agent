@@ -12,11 +12,12 @@ create-missing = false
 edition = "2024"
 
 [output.html]
+cname = "esp-agent.veeso.dev"
 default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/veeso/esp-agent"
 edit-url-template = "https://github.com/veeso/esp-agent/edit/main/docs/{path}"
-site-url = "/esp-agent/"
+site-url = "/"
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
 [output.html.playground]

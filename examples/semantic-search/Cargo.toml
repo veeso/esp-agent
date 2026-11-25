@@ -1,12 +1,13 @@
 [package]
 name = "semantic-search"
-version = "0.1.0"
+version.workspace = true
 default-run = "semantic-search"
-edition = "2024"
-license = "Apache-2.0"
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
 publish = false
-repository = "https://github.com/veeso/esp-agent"
-rust-version = "1.97"
+repository.workspace = true
+rust-version.workspace = true
 description = "Example firmware: interactive semantic search over the serial console"
 
 [features]
