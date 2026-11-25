@@ -1,0 +1,14 @@
+/* Source: esp-hal 1.2.2, esp-hal/ld/esp32c6/linkall.x. */
+INCLUDE "memory-esp32c6.x"
+
+REGION_ALIAS("ROTEXT", ROM);
+REGION_ALIAS("RODATA", ROM);
+
+REGION_ALIAS("RWTEXT", RAM);
+REGION_ALIAS("RWDATA", RAM);
+
+REGION_ALIAS("RTC_FAST_RWTEXT", RTC_FAST);
+REGION_ALIAS("RTC_FAST_RWDATA", RTC_FAST);
+
+INCLUDE "esp32c6.x"
+INCLUDE "hal-defaults.x"

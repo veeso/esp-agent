@@ -101,8 +101,11 @@ From the repository root, flash the example with the command for your board.
 
 ```sh
 just run_s3 home-assistant
-# ESP32-S31
+# ESP32-S31, ESP32-C5, ESP32-C6, or ESP32-P4
 just run_s31 home-assistant
+just run_c5 home-assistant
+just run_c6 home-assistant
+just run_p4 home-assistant
 ```
 
 Try these commands in the serial monitor. The agent asks which lamp, and “it”

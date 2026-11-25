@@ -11,7 +11,8 @@
 [![Coverage](https://coveralls.io/repos/github/veeso/esp-agent/badge.svg?branch=main)](https://coveralls.io/github/veeso/esp-agent?branch=main)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
 
-A bare-metal (`no_std`, Rust) local agent library for ESP32-S3 and ESP32-S31.
+A bare-metal (`no_std`, Rust) local agent library for Espressif chips with
+16 MiB of flash: ESP32-S3, ESP32-S31, ESP32-C5, ESP32-C6, and ESP32-P4.
 
 `esp-agent` runs a small agent entirely on the chip, with nothing sent to the
 cloud. It uses static embedding models, so it matches text but does not
@@ -213,6 +214,26 @@ project keeps full control of the chip setup. Your firmware must:
 See [`examples/semantic-search`](examples/semantic-search) for a complete
 firmware that uses the library.
 
+## Supported boards
+
+The library has no HAL dependency and builds for every Espressif target. A chip
+runs the example firmware when it can hold and map the about 8.2 MB image that
+embeds `potion-base-2M`, which means a board with 16 MiB of flash. CI builds and
+lints the example for each supported chip.
+
+| Chip      | Architecture | Rust target                     | Example feature | Run recipe |
+| --------- | ------------ | ------------------------------- | --------------- | ---------- |
+| ESP32-S3  | Xtensa       | `xtensa-esp32s3-none-elf`       | `esp32s3`       | `run_s3`   |
+| ESP32-S31 | RISC-V       | `riscv32imafc-unknown-none-elf` | `esp32s31`      | `run_s31`  |
+| ESP32-C5  | RISC-V       | `riscv32imac-unknown-none-elf`  | `esp32c5`       | `run_c5`   |
+| ESP32-C6  | RISC-V       | `riscv32imac-unknown-none-elf`  | `esp32c6`       | `run_c6`   |
+| ESP32-P4  | RISC-V       | `riscv32imafc-unknown-none-elf` | `esp32p4`       | `run_p4`   |
+
+The ESP32, ESP32-S2, ESP32-C2, ESP32-C3, ESP32-C61, and ESP32-H2 cannot hold the
+example model, because they map or ship too little flash. See
+[Supported Boards](https://esp-agent.veeso.dev/boards.html) for the limit of
+each chip and for porting your own firmware.
+
 ## Embedding models
 
 Start with `potion-base-2M` for general English search on a 16 MiB board. If
@@ -316,7 +337,7 @@ just coverage
 
 ## Requirements
 
-- An ESP32-S3 or ESP32-S31-Korvo-1 with 16 MiB of flash.
+- A [supported board](#supported-boards) with 16 MiB of flash.
 - The ESP Rust toolchain installed with [`espup`](https://github.com/esp-rs/espup),
   including `rust-src`. The repository pins version 1.97.0.0:
 
@@ -359,7 +380,7 @@ cargo install mdbook-mermaid --version 0.17.1 --locked
 The build and run recipes target the example firmware package, which has two
 binaries: `semantic-search` and `home-assistant`. Select exactly one chip per
 build. Every command goes through a `just` recipe:
-recipes with the suffix `_s3` or `_s31` run for one chip.
+recipes with the suffix `_s3`, `_s31`, `_c5`, `_c6`, or `_p4` run for one chip.
 
 ### ESP32-S3
 
@@ -390,7 +411,19 @@ just run_s31
 This builds, flashes with the 16 MiB flash configuration, and opens the serial
 monitor on the board UART USB-C connector.
 
-Both targets print the startup details, list eight indexed sentences, and wait
+### ESP32-C5, ESP32-C6, and ESP32-P4
+
+Build or flash the firmware with the recipe of your chip:
+
+```bash
+just build_c6
+just run_c6
+```
+
+Replace `c6` with `c5` or `p4` for the other chips. The console listens on the
+USB Serial/JTAG port and on the UART0 receive pin of the chip.
+
+Every target prints the startup details, list eight indexed sentences, and wait
 at the interactive prompt. For example:
 
 ```text
@@ -484,10 +517,16 @@ Run `just` to list every recipe.
 just build
 just build_s3
 just build_s31
+just build_c5
+just build_c6
+just build_p4
 just build_host
 just download_test_model
 just run_s3
 just run_s31
+just run_c5
+just run_c6
+just run_p4
 just monitor
 just lock
 just fmt
@@ -512,7 +551,7 @@ just changelog_preview 0.1.0
 just changelog 0.1.0
 ```
 
-For recipes with both chip variants, the unsuffixed recipe runs `_s3` and then `_s31`.
+For recipes with chip variants, the unsuffixed recipe runs every chip: `_s3`, `_s31`, `_c5`, `_c6`, and then `_p4`.
 `build_host`, `test`, `coverage`, `test_bench`, `clippy_bench`, and the `bench` recipes run on
 your computer with the standard Rust toolchain.
 

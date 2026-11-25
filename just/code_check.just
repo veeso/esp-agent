@@ -20,9 +20,24 @@ clippy_s3 args="": download_test_model
 clippy_s31 args="": download_test_model
   cargo clippy --locked --workspace --exclude esp-agent-bench {{ s31_flags }} {{ args }}
 
-# Run Clippy for both chips.
+# Run Clippy for the ESP32-C5.
 [group('code-check')]
-clippy args="": (clippy_s3 args) (clippy_s31 args)
+clippy_c5 args="": download_test_model
+  cargo clippy --locked --workspace --exclude esp-agent-bench {{ c5_flags }} {{ args }}
+
+# Run Clippy for the ESP32-C6.
+[group('code-check')]
+clippy_c6 args="": download_test_model
+  cargo clippy --locked --workspace --exclude esp-agent-bench {{ c6_flags }} {{ args }}
+
+# Run Clippy for the ESP32-P4.
+[group('code-check')]
+clippy_p4 args="": download_test_model
+  cargo clippy --locked --workspace --exclude esp-agent-bench {{ p4_flags }} {{ args }}
+
+# Run Clippy for every supported chip.
+[group('code-check')]
+clippy args="": (clippy_s3 args) (clippy_s31 args) (clippy_c5 args) (clippy_c6 args) (clippy_p4 args)
 
 # Run Clippy for the benchmarks on this computer with the standard Rust toolchain.
 [group('code-check')]
@@ -39,9 +54,24 @@ doc_s3 args="":
 doc_s31 args="":
   RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ s31_target }} {{ args }}
 
-# Build the library documentation for both chips and deny warnings.
+# Build the library documentation for the ESP32-C5 and deny warnings.
 [group('code-check')]
-doc args="": (doc_s3 args) (doc_s31 args)
+doc_c5 args="":
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ c5_target }} {{ args }}
+
+# Build the library documentation for the ESP32-C6 and deny warnings.
+[group('code-check')]
+doc_c6 args="":
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ c6_target }} {{ args }}
+
+# Build the library documentation for the ESP32-P4 and deny warnings.
+[group('code-check')]
+doc_p4 args="":
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ p4_target }} {{ args }}
+
+# Build the library documentation for every supported chip and deny warnings.
+[group('code-check')]
+doc args="": (doc_s3 args) (doc_s31 args) (doc_c5 args) (doc_c6 args) (doc_p4 args)
 
 # Run the library tests on this computer with the standard Rust toolchain.
 [group('code-check')]

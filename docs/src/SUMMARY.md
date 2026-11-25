@@ -4,6 +4,7 @@
 
 # Guides
 
+- [Supported Boards](boards.md)
 - [Available Models](models.md)
 - [Search](search.md)
 - [Turns](turns.md)

@@ -4,8 +4,9 @@
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
 
 `esp-agent` is an early-stage Rust `no_std` library for running a small agent
-entirely on an ESP32-S3 or ESP32-S31. Your firmware embeds the model and keeps
-its inputs and results on the chip.
+entirely on an Espressif chip with 16 MB of flash: the ESP32-S3, ESP32-S31,
+ESP32-C5, ESP32-C6, or ESP32-P4 (see [Supported Boards](boards.md)). Your
+firmware embeds the model and keeps its inputs and results on the chip.
 
 ## What it does today
 

@@ -8,6 +8,14 @@ rustflags = [
   "link-arg=-nostartfiles",
 ]
 
+# ESP32-C5 and ESP32-C6. The `run_c5` and `run_c6` recipes pass the runner with the chip.
+[target.riscv32imac-unknown-none-elf]
+rustflags = [
+  "-C",
+  "force-frame-pointers",
+]
+
+# ESP32-S31 and ESP32-P4. The `run_p4` recipe replaces this runner with one for the ESP32-P4.
 [target.riscv32imafc-unknown-none-elf]
 runner = "espflash flash --monitor --chip esp32s31 --flash-size 16mb"
 rustflags = [

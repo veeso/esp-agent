@@ -11,7 +11,7 @@ Fixes #
 ## Checklist
 
 - [ ] I have read the [AI Policy](https://github.com/veeso/esp-agent/blob/main/AI_POLICY.md).
-- [ ] I have built and run the firmware on the boards affected by this change (ESP32-S3, ESP32-S31).
+- [ ] I have built and run the firmware on the boards affected by this change (see the [supported boards](https://esp-agent.veeso.dev/boards.html)).
 - [ ] `just check` passes locally.
 - [ ] My commits follow the [Conventional Commits](https://www.conventionalcommits.org) format; the `CHANGELOG.md` is generated from them at release time.
 

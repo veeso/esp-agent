@@ -8,8 +8,11 @@ This repository is `esp-agent`, a `#![no_std]` library that aims to run a
 local agent on ESP32 chips, with embeddable prompts, skills,
 and context. It started as a fork of `qdrant-labs/static-models-bm`; keep the
 credit to that project and its author in `README.md`. Today it runs static
-embedding models on the ESP32-S3 (default, Xtensa) and the ESP32-S31 (RISC-V,
-`riscv32imafc-unknown-none-elf`). The library ships no model: firmware embeds
+embedding models on the Espressif chips with 16 MB of flash: the ESP32-S3
+(default, Xtensa), the ESP32-S31 and ESP32-P4 (RISC-V,
+`riscv32imafc-unknown-none-elf`), and the ESP32-C5 and ESP32-C6 (RISC-V,
+`riscv32imac-unknown-none-elf`). `docs/src/boards.md` lists the supported chips
+and why the others cannot hold the example model. The library ships no model: firmware embeds
 its own with the `model!` macro. It is a virtual Cargo workspace: the library
 lives in `crates/esp-agent` (`src/lib.rs`) and other ESP firmware projects
 depend on it, `crates/esp-agent-macros` provides the build-time model compiler,
@@ -36,7 +39,7 @@ toolchain 1.97, through `just build_host` and `just test`. Keep `host_toolchain`
 in `just/build.just` and `RUSTUP_TOOLCHAIN` of the `host` job in
 `.github/workflows/ci.yml` and of the `benchmark` job in
 `.github/workflows/benchmark.yml` equal to `workspace.package.rust-version`. Library code must
-keep building for the host target as well as for both chips.
+keep building for the host target as well as for every supported chip.
 
 ## Working rules
 
@@ -81,7 +84,8 @@ keep building for the host target as well as for both chips.
   `src/console.rs` for the sans-IO serial console. `model/` holds the
   potion-2M model downloaded by
   `just download_test_model` (it is not tracked), `build.rs` configures the
-  linker, and `ld/esp32s31/` holds the ESP32-S31 linker scripts.
+  linker, and `ld/<chip>/` holds the linker scripts of each RISC-V chip, copied
+  from esp-hal with a 16 MB `ROM` region.
 - Use `module_name.rs`; never introduce `mod.rs`.
 
 - `docs/` contains the mdBook website. Pages in `docs/src/` include code from
@@ -91,10 +95,16 @@ keep building for the host target as well as for both chips.
 ## ESP notes
 
 - Build the example for exactly one chip per build: its `esp32s3` feature
-  (default) or its `esp32s31` feature with `--no-default-features`. Never
-  enable both. The library has no chip features.
+  (default), or one of its `esp32s31`, `esp32c5`, `esp32c6`, and `esp32p4`
+  features with `--no-default-features`. Never enable two. The library has no chip features.
 - The S3 builds for `xtensa-esp32s3-none-elf`, the default target in
-  `.cargo/config.toml`. The S31 builds for `riscv32imafc-unknown-none-elf`.
+  `.cargo/config.toml`. The S31 and the P4 build for
+  `riscv32imafc-unknown-none-elf`, the C5 and the C6 for
+  `riscv32imac-unknown-none-elf`. Because targets are shared, `build.rs` picks
+  the linker scripts from the chip feature.
+- When adding a chip, add its example feature, `ld/<chip>/` scripts, the UART0
+  receive pin in `src/board.rs`, its `just` recipes, the CI `quality` matrix
+  entry, and its rows in `README.md` and `docs/src/boards.md`.
 - Check the `generator parameters:` comments in `examples/semantic-search/src/main.rs` before
   changing code that depends on selected generation options.
 - Avoid `std`; use `core` and embedded-friendly crates.
@@ -110,7 +120,9 @@ keep building for the host target as well as for both chips.
 - Logging uses `log` and `esp-println`; the default filter is `ESP_LOG=info` in
   `.cargo/config.toml` and can be overridden from the environment.
 - `just run_s3` and `just run_s31` flash the board and open the monitor through
-  the `espflash` runner in `.cargo/config.toml`. The S31 runner uses
+  the `espflash` runner in `.cargo/config.toml`. `just run_c5`, `just run_c6`,
+  and `just run_p4` pass their runner with `--config`, because they share a
+  target with another chip. The S31 runner uses
   `--flash-size 16mb`.
 - If flashing fails, check bootloader mode, serial-port permissions, the
   selected port when multiple boards are connected, and that the `--chip` in
@@ -135,18 +147,24 @@ Use [`just`](https://just.systems) recipes when one exists. Do not bypass a
 recipe with an ad hoc `cargo` or tool command. If a recurring task has no
 recipe, add a focused recipe before using it.
 
-Run `just` to list every command. Recipes with the suffix `_s3` or `_s31` run
-for one chip. For recipes with both chip variants, the unsuffixed recipe runs
-`_s3` and then `_s31`. The primary recipes are:
+Run `just` to list every command. Recipes with the suffix `_s3`, `_s31`, `_c5`,
+`_c6`, or `_p4` run for one chip. For recipes with chip variants, the
+unsuffixed recipe runs every chip: `_s3`, `_s31`, `_c5`, `_c6`, and then `_p4`. The primary recipes are:
 
 ```sh
 just build
 just build_s3
 just build_s31
+just build_c5
+just build_c6
+just build_p4
 just build_host
 just download_test_model
 just run_s3
 just run_s31
+just run_c5
+just run_c6
+just run_p4
 just monitor
 just lock
 just fmt
