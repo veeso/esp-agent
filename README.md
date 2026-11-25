@@ -1,11 +1,15 @@
 # esp-agent
 
+[![license-mit](https://img.shields.io/crates/l/esp-agent.svg?logo=rust)](https://opensource.org/licenses/Apache-2.0)
+[![latest-version](https://img.shields.io/crates/v/esp-agent.svg?logo=rust)](https://crates.io/crates/esp-agent)
+[![docs](https://docs.rs/esp-agent/badge.svg?logo=rust)](https://docs.rs/esp-agent)
+[![Docs](https://img.shields.io/badge/docs-esp--agent.veeso.dev-blue)](https://esp-agent.veeso.dev)
+
 [![CI](https://github.com/veeso/esp-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/ci.yml)
-[![Coverage](https://coveralls.io/repos/github/veeso/esp-agent/badge.svg?branch=main)](https://coveralls.io/github/veeso/esp-agent?branch=main)
 [![TruffleHog](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/trufflehog.yml)
 [![zizmor](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml/badge.svg)](https://github.com/veeso/esp-agent/actions/workflows/zizmor.yml)
+[![Coverage](https://coveralls.io/repos/github/veeso/esp-agent/badge.svg?branch=main)](https://coveralls.io/github/veeso/esp-agent?branch=main)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
-[![Docs](https://img.shields.io/badge/docs-esp--agent.veeso.dev-blue)](https://esp-agent.veeso.dev)
 
 A bare-metal (`no_std`, Rust) local agent library for ESP32-S3 and ESP32-S31.
 
