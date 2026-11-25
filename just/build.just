@@ -1,11 +1,24 @@
 # Example firmware crate that the build and run recipes target.
 example := "semantic-search"
 
-# Cargo flag that selects the ESP32-S31 target.
-s31_target := "--target riscv32imafc-unknown-none-elf"
+# Cargo flag that selects the target of the ESP32-C5 and the ESP32-C6.
+c5_target := "--target riscv32imac-unknown-none-elf"
+c6_target := c5_target
 
-# Cargo flags that select the ESP32-S31 target and the example chip feature.
+# Cargo flag that selects the target of the ESP32-P4 and the ESP32-S31.
+s31_target := "--target riscv32imafc-unknown-none-elf"
+p4_target := s31_target
+
+# Cargo flags that select each RISC-V chip: its target and the example chip feature.
+c5_flags := c5_target + " --no-default-features --features " + example + "/esp32c5"
+c6_flags := c6_target + " --no-default-features --features " + example + "/esp32c6"
+p4_flags := p4_target + " --no-default-features --features " + example + "/esp32p4"
 s31_flags := s31_target + " --no-default-features --features " + example + "/esp32s31"
+
+# Cargo flag that sets the `espflash` runner of a chip whose target has no runner of its own in .cargo/config.toml.
+c5_runner := "--config 'target.riscv32imac-unknown-none-elf.runner=\"espflash flash --monitor --chip esp32c5\"'"
+c6_runner := "--config 'target.riscv32imac-unknown-none-elf.runner=\"espflash flash --monitor --chip esp32c6\"'"
+p4_runner := "--config 'target.riscv32imafc-unknown-none-elf.runner=\"espflash flash --monitor --chip esp32p4\"'"
 
 # Standard Rust toolchain for regular computers; keep it equal to `workspace.package.rust-version`.
 host_toolchain := "1.97"
@@ -62,9 +75,24 @@ build_s3 args="": download_test_model
 build_s31 args="": download_test_model
   cargo build --locked --release --package {{ example }} {{ s31_flags }} {{ args }}
 
-# Build the example firmware for both chips in release mode.
+# Build the example firmware for the ESP32-C5 in release mode.
 [group('build')]
-build args="": (build_s3 args) (build_s31 args)
+build_c5 args="": download_test_model
+  cargo build --locked --release --package {{ example }} {{ c5_flags }} {{ args }}
+
+# Build the example firmware for the ESP32-C6 in release mode.
+[group('build')]
+build_c6 args="": download_test_model
+  cargo build --locked --release --package {{ example }} {{ c6_flags }} {{ args }}
+
+# Build the example firmware for the ESP32-P4 in release mode.
+[group('build')]
+build_p4 args="": download_test_model
+  cargo build --locked --release --package {{ example }} {{ p4_flags }} {{ args }}
+
+# Build the example firmware for every supported chip in release mode.
+[group('build')]
+build args="": (build_s3 args) (build_s31 args) (build_c5 args) (build_c6 args) (build_p4 args)
 
 # Flash semantic-search (default) or home-assistant to the ESP32-S3 and open the serial monitor. Cargo flags are optional.
 [group('build')]
@@ -73,6 +101,18 @@ run_s3 scenario="" args="": download_test_model (_run "" scenario args)
 # Flash semantic-search (default) or home-assistant to the ESP32-S31 and open the serial monitor. Cargo flags are optional.
 [group('build')]
 run_s31 scenario="" args="": download_test_model (_run s31_flags scenario args)
+
+# Flash semantic-search (default) or home-assistant to the ESP32-C5 and open the serial monitor. Cargo flags are optional.
+[group('build')]
+run_c5 scenario="" args="": download_test_model (_run (c5_flags + " " + c5_runner) scenario args)
+
+# Flash semantic-search (default) or home-assistant to the ESP32-C6 and open the serial monitor. Cargo flags are optional.
+[group('build')]
+run_c6 scenario="" args="": download_test_model (_run (c6_flags + " " + c6_runner) scenario args)
+
+# Flash semantic-search (default) or home-assistant to the ESP32-P4 and open the serial monitor. Cargo flags are optional.
+[group('build')]
+run_p4 scenario="" args="": download_test_model (_run (p4_flags + " " + p4_runner) scenario args)
 
 # Run one firmware binary: a known scenario selects its binary, Cargo flags are passed through.
 [private]

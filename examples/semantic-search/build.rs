@@ -152,17 +152,21 @@ fn configure_linker() {
             error_handling_script.display()
         );
         println!("cargo:rustc-link-arg=-Tlinkall.x");
-    } else if target == "riscv32imafc-unknown-none-elf" {
+    } else if target.starts_with("riscv32") {
+        // The RISC-V chips use local copies of the esp-hal linker scripts that map 16 MB of
+        // flash instead of 4 MB, so the embedded model fits. Two chips share each RISC-V target,
+        // so the chip feature selects the folder.
+        let chip = riscv_chip();
         let manifest_dir = std::path::PathBuf::from(
             std::env::var("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"),
         );
-        let linker_dir = manifest_dir.join("ld/esp32s31");
+        let linker_dir = manifest_dir.join("ld").join(chip);
         let linker_script = linker_dir.join("linkall.x");
 
         println!("cargo:rerun-if-changed={}", linker_script.display());
         println!(
             "cargo:rerun-if-changed={}",
-            linker_dir.join("memory-esp32s31.x").display()
+            linker_dir.join(format!("memory-{chip}.x")).display()
         );
         println!("cargo:rustc-link-search={}", linker_dir.display());
         println!(
@@ -170,5 +174,25 @@ fn configure_linker() {
             error_handling_script.display()
         );
         println!("cargo:rustc-link-arg=-T{}", linker_script.display());
+    }
+}
+
+/// Returns the RISC-V chip selected through the chip feature of this crate.
+fn riscv_chip() -> &'static str {
+    const CHIPS: [&str; 4] = ["esp32c5", "esp32c6", "esp32p4", "esp32s31"];
+
+    let enabled: Vec<&str> = CHIPS
+        .into_iter()
+        .filter(|chip| {
+            let feature = format!("CARGO_FEATURE_{chip}", chip = chip.to_ascii_uppercase());
+            std::env::var_os(feature).is_some()
+        })
+        .collect();
+    match enabled.as_slice() {
+        [chip] => chip,
+        _ => panic!(
+            "Enable exactly one RISC-V chip feature ({chips}) with --no-default-features.",
+            chips = CHIPS.join(", ")
+        ),
     }
 }

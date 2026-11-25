@@ -16,7 +16,7 @@ license.workspace = true
 readme = "../../README.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "Bare-metal no_std local agent for ESP32-S3 and ESP32-S31: on-device semantic search and command recognition with static embedding models"
+description = "Bare-metal no_std local agent for ESP32 chips (S3, S31, C5, C6, P4): on-device semantic search and command recognition with static embedding models"
 
 [dependencies]
 esp-agent-macros = { workspace = true }

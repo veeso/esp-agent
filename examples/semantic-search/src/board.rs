@@ -53,10 +53,17 @@ pub fn init_serial() -> SerialInput<'static> {
 
     #[cfg(feature = "esp32s3")]
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
-    #[cfg(feature = "esp32s31")]
+    #[cfg(not(feature = "esp32s3"))]
     esp_alloc::heap_allocator!(size: 73744);
 
     // Only the receive side of UART0 is claimed: transmission stays with `esp-println`.
+    // Each chip routes U0RXD to its own default pin.
+    #[cfg(feature = "esp32c5")]
+    let uart_rx = peripherals.GPIO12;
+    #[cfg(feature = "esp32c6")]
+    let uart_rx = peripherals.GPIO17;
+    #[cfg(feature = "esp32p4")]
+    let uart_rx = peripherals.GPIO38;
     #[cfg(feature = "esp32s3")]
     let uart_rx = peripherals.GPIO44;
     #[cfg(feature = "esp32s31")]

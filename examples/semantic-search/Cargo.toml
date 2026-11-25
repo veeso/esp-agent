@@ -12,6 +12,27 @@ description = "Example firmware: interactive semantic search over the serial con
 
 [features]
 default = ["esp32s3"]
+esp32c5 = [
+  "esp-alloc/esp32c5",
+  "esp-backtrace/esp32c5",
+  "esp-bootloader-esp-idf/esp32c5",
+  "esp-hal/esp32c5",
+  "esp-println/esp32c5",
+]
+esp32c6 = [
+  "esp-alloc/esp32c6",
+  "esp-backtrace/esp32c6",
+  "esp-bootloader-esp-idf/esp32c6",
+  "esp-hal/esp32c6",
+  "esp-println/esp32c6",
+]
+esp32p4 = [
+  "esp-alloc/esp32p4",
+  "esp-backtrace/esp32p4",
+  "esp-bootloader-esp-idf/esp32p4",
+  "esp-hal/esp32p4",
+  "esp-println/esp32p4",
+]
 esp32s3 = [
   "esp-alloc/esp32s3",
   "esp-backtrace/esp32s3",

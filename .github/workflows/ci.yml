@@ -43,6 +43,12 @@ jobs:
             suffix: s3
           - chip: ESP32-S31
             suffix: s31
+          - chip: ESP32-C5
+            suffix: c5
+          - chip: ESP32-C6
+            suffix: c6
+          - chip: ESP32-P4
+            suffix: p4
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,8 +69,9 @@ jobs:
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
         with:
           just-version: "1.59.0"
-      - name: Confirm RISC-V target and rust-src support
+      - name: Confirm RISC-V targets and rust-src support
         run: |
+          rustc --print target-list | grep -Fx riscv32imac-unknown-none-elf
           rustc --print target-list | grep -Fx riscv32imafc-unknown-none-elf
           test -d "$(rustc --print sysroot)/lib/rustlib/src/rust/library"
       - name: Update lockfile

@@ -86,8 +86,11 @@ From the repository root, run the command for your board.
 
 ```sh
 just run_s3
-# ESP32-S31
+# ESP32-S31, ESP32-C5, ESP32-C6, or ESP32-P4
 just run_s31
+just run_c5
+just run_c6
+just run_p4
 ```
 
 ```text
