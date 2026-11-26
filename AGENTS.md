@@ -236,6 +236,13 @@ passed or silently replace the repository command with a weaker check.
   `docs/src/SUMMARY.md`, when a feature has no page yet.
 - Run `just book` after editing `docs/` to confirm the website still builds.
 - Write task-oriented documentation with runnable examples.
+- Keep examples minimal and easy to follow. Show the API call a reader needs to
+  copy in a few lines, such as a map of vocabularies and `set_vocabulary`. Leave
+  out wire formats like JSON payloads, parsing helpers, and match arms for cases
+  the example never reaches. Edge cases and limits belong in the reference pages
+  and in tests that the pages do not include.
+- Take excerpts from code that runs, through `ANCHOR` comments, and keep extra
+  assertions outside the anchors.
 - Use ATX headings and fenced code blocks with language identifiers.
 - Keep Markdown lines readable, tables aligned, and files terminated by one
   newline.
