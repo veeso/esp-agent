@@ -3,7 +3,7 @@ members = ["crates/*", "examples/semantic-search"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 homepage = "https://esp-agent.veeso.dev"
 license = "Apache-2.0"
@@ -15,8 +15,8 @@ rust-version = "1.97"
 criterion = "0.8"
 critical-section = "1"
 esp-agent = { path = "crates/esp-agent" }
-esp-agent-macros = { path = "crates/esp-agent-macros", version = "0.1" }
-esp-agent-patterns = { path = "crates/esp-agent-patterns", version = "0.1" }
+esp-agent-macros = { path = "crates/esp-agent-macros", version = "0.2" }
+esp-agent-patterns = { path = "crates/esp-agent-patterns", version = "0.2" }
 esp-alloc = "0.11"
 esp-backtrace = "0.20"
 esp-bootloader-esp-idf = "0.6"

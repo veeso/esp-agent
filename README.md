@@ -41,7 +41,7 @@ a Git dependency:
 
 ```toml
 [dependencies]
-esp-agent = "0.1"
+esp-agent = "0.2"
 ```
 
 Then embed text from your firmware:
