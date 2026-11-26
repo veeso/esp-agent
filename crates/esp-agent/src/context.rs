@@ -80,6 +80,15 @@ pub trait TurnHandler<T> {
     /// each matching device. The agent uses these IDs as choices for later clarification.
     fn resolve_targets(&self, selector: &str) -> TargetMatch;
 
+    /// Returns whether `target` can still be offered in a clarification.
+    ///
+    /// The agent asks before offering remembered group members or matching a reply, and
+    /// drops any choice for which this returns `false`. The default keeps every choice.
+    /// This does not replace validation in [`Self::dispatch`].
+    fn target_available(&self, _target: TargetId) -> bool {
+        true
+    }
+
     /// Tells whether `reply` picks `target` out of the choices a clarification offered.
     fn matches_target(&self, target: TargetId, reply: &str) -> bool;
 

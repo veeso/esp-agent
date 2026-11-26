@@ -126,7 +126,9 @@ fn parse_members(input: ParseStream) -> syn::Result<Vec<Ident>> {
 ///
 /// Keep this in step with `normalize` in the library's `catalog` module.
 fn normalize(text: &str) -> String {
-    let text = text.trim().trim_end_matches(['.', '!', '?']).trim_end();
+    let text = text
+        .trim_start()
+        .trim_end_matches(|ch: char| ch.is_whitespace() || matches!(ch, '.' | '!' | '?'));
     let lower = text.to_ascii_lowercase();
     lower
         .strip_prefix("the ")
@@ -278,6 +280,10 @@ mod tests {
             (r#"group ["both"] = [A, A];"#, "device `A` is listed twice"),
             ("group [] = [A];", "at least one phrase"),
             ("choose \" THE A \" from [A];", "selector"),
+            (
+                r#"device B = 2, "A ! ?" {}"#,
+                r#"the selector "a" is already declared"#,
+            ),
             ("group [\"both\"] = [A, B];", "unknown device"),
         ] {
             let source = format!("device A = 1, \"a\" {{ replies []; }} {suffix}");

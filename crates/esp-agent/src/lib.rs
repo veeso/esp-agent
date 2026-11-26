@@ -119,6 +119,11 @@
 //! let outcome = agent.turn("Dim it to 12%", &mut handler);
 //! ```
 //!
+//! Devices that firmware learns after startup, from a scan or a coordinator, go into a
+//! [`DynamicTargetCatalog`] instead. Build each entry with [`target!`], insert it, and pass
+//! the catalog to [`TurnCommands::handler`] exactly like a `targets!` catalog. The handler
+//! accepts any [`TargetLookup`].
+//!
 //! The macros and the handler are independent. A handwritten [`TurnHandler`] can call
 //! [`TurnCommands::parse_command`] from its `parse`, try input of its own after it, and
 //! use a catalog for the two lookups. That is the way to ask a question the agent does not
@@ -171,7 +176,7 @@ mod tokenizer;
 #[doc(inline)]
 pub use agent::{Agent, AgentBuilder, AgentError};
 #[doc(inline)]
-pub use catalog::TargetCatalog;
+pub use catalog::{CatalogError, DynamicTarget, DynamicTargetCatalog, TargetCatalog, TargetLookup};
 #[doc(inline)]
 pub use commands::TurnCommands;
 #[doc(inline)]
@@ -268,11 +273,44 @@ macro_rules! targets {
     }};
 }
 
-/// Support items for the expansion of [`model!`] and [`targets!`]. Not part of the public
-/// API.
+/// Builds a [`DynamicTarget`] from values that firmware learns at run time, to insert into a
+/// [`DynamicTargetCatalog`].
+///
+/// The arguments are those of `format!`: positional ones first, then named ones. The
+/// positional order is `id`, `name`, `replies`, and the named keys `id`, `name`, and
+/// `replies` can come in any order. `replies` is optional, and a trailing comma is allowed.
+///
+/// ```rust,ignore
+/// use esp_agent::{DynamicTargetCatalog, target};
+///
+/// let mut catalog = DynamicTargetCatalog::new();
+/// for device in coordinator.devices() {
+///     catalog.insert(target!(device.id, device.name, replies = device.aliases))?;
+/// }
+/// ```
+///
+/// * `id` is a [`TargetId`].
+/// * `name` is any value that is `Into<String>`, such as a `&str`, a `String`, or a
+///   `&String`.
+/// * `replies` is any `IntoIterator` of values that are `Into<String>`, such as an array,
+///   a `Vec<String>`, or a `&Vec<String>`.
+///
+/// Each expression is evaluated once, in the order written. A mistake in the argument list,
+/// such as a missing ID or an unknown key, is a compile error. A conflict with the entries
+/// already in the catalog, such as a duplicate ID, is a [`CatalogError`] that
+/// [`DynamicTargetCatalog::insert`] returns.
+#[macro_export]
+macro_rules! target {
+    ($($input:tt)*) => {{
+        $crate::_private::compile_target!(($crate::DynamicTarget) $($input)*)
+    }};
+}
+
+/// Support items for the expansion of [`model!`], [`targets!`], and [`target!`]. Not part of
+/// the public API.
 #[doc(hidden)]
 pub mod _private {
-    pub use esp_agent_macros::{compile_model, compile_targets};
+    pub use esp_agent_macros::{compile_model, compile_target, compile_targets};
 
     pub use crate::catalog::{RawCatalog, RawDevice, RawSelector};
     pub use crate::commands::{CaptureMatch, selector, split, trim_sentence};

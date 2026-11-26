@@ -4,6 +4,7 @@ mod catalog;
 mod commands;
 mod compile;
 mod expand;
+mod target;
 
 use std::path::PathBuf;
 
@@ -14,6 +15,14 @@ use quote::quote;
 #[proc_macro]
 pub fn compile_targets(input: TokenStream) -> TokenStream {
     catalog::expand(input.into())
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
+
+/// Compiles the arguments of `target!` into a `DynamicTarget` expression.
+#[proc_macro]
+pub fn compile_target(input: TokenStream) -> TokenStream {
+    target::expand(input.into())
         .unwrap_or_else(|error| error.to_compile_error())
         .into()
 }

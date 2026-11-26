@@ -160,12 +160,17 @@ impl<'k, T> Agent<'k, T> {
     ///   context limit, and the outcome is [`TurnOutcome::Clarify`]. Otherwise the user must
     ///   give a more specific command and the outcome is [`TurnOutcome::NeedTarget`].
     /// * A [`TargetSelector::Previous`] reference resolves only to a single remembered
-    ///   target. A remembered group becomes a pending clarification. With no remembered
-    ///   target the outcome is [`TurnOutcome::NeedTarget`].
+    ///   target. A remembered group becomes a pending clarification with only the
+    ///   [available](TurnHandler::target_available) members, even if only one remains.
+    ///   With no remembered target or no available group members the outcome is
+    ///   [`TurnOutcome::NeedTarget`].
     ///
-    /// Input that parses to no command answers the pending clarification when exactly one
-    /// of its choices matches. Any other input leaves the clarification pending and repeats
-    /// its choices. With nothing pending the outcome is [`TurnOutcome::Unrecognized`].
+    /// Before matching input that parses to no command against a pending clarification,
+    /// the agent drops choices the handler reports as [unavailable](TurnHandler::target_available).
+    /// If none remain, it clears the question and returns [`TurnOutcome::NeedTarget`]. If
+    /// exactly one choice matches, it runs the pending command on that target. Otherwise it
+    /// repeats the remaining choices. With nothing pending the outcome is
+    /// [`TurnOutcome::Unrecognized`].
     ///
     /// A successful dispatch replaces the remembered targets, or clears them when the full
     /// target list exceeds the context limit. A failed one keeps the previous memory. With
@@ -204,7 +209,13 @@ impl<'k, T> Agent<'k, T> {
             TargetSelector::Previous => match self.context.last.as_slice() {
                 [] => TargetMatch::Missing,
                 &[target] => return self.dispatch(command.action, &[target], handler),
-                choices => TargetMatch::Ambiguous(choices.to_vec()),
+                choices => TargetMatch::Ambiguous(
+                    choices
+                        .iter()
+                        .copied()
+                        .filter(|&target| handler.target_available(target))
+                        .collect(),
+                ),
             },
         };
         match matched {
@@ -231,9 +242,15 @@ impl<'k, T> Agent<'k, T> {
     where
         H: TurnHandler<T>,
     {
-        let Some(pending) = self.context.pending.take() else {
+        let Some(mut pending) = self.context.pending.take() else {
             return TurnOutcome::Unrecognized;
         };
+        pending
+            .choices
+            .retain(|&target| handler.target_available(target));
+        if pending.choices.is_empty() {
+            return TurnOutcome::NeedTarget;
+        }
         let mut matching = pending
             .choices
             .iter()
