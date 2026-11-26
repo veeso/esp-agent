@@ -1,9 +1,11 @@
-//! The typed command parser that `#[derive(TurnCommands)]` generates and its handler adapter.
+//! The typed command parser that `#[derive(TurnCommands)]` generates, the vocabularies that
+//! replace it at run time, and the handler adapter.
 
-use core::marker::PhantomData;
+use core::fmt;
 
-use crate::catalog::{TargetLookup, trim_target_suffix};
+use crate::catalog::{TargetCatalog, TargetLookup, trim_target_suffix};
 use crate::context::{Command, TargetId, TargetMatch, TargetSelector, TurnHandler};
+use crate::runtime_vocabulary::RuntimeVocabulary;
 
 /// An action enum whose commands are declared next to its variants.
 ///
@@ -24,6 +26,9 @@ use crate::context::{Command, TargetId, TargetMatch, TargetSelector, TurnHandler
 /// of the input is tried, and input that more than one pattern or split accepts is
 /// declined as ambiguous. Variants without `#[command]` are skipped, so handwritten code
 /// can construct them.
+///
+/// The derive also implements [`NamedActions`](crate::NamedActions), so that a
+/// [`RuntimeVocabulary`] can spell the same variants by name.
 ///
 /// Matching borrows the input and allocates nothing. The field types' own parsers pay for
 /// their costs. Pattern problems are compile errors, and they are also checked on the
@@ -67,32 +72,234 @@ pub trait TurnCommands: Sized {
     where
         F: FnMut(Self, &[TargetId]) -> Result<S, E>,
     {
-        CommandHandler {
+        Handler {
             catalog,
+            parse: Self::parse_command,
             dispatch,
-            action: PhantomData,
         }
     }
 }
 
-/// The adapter that [`TurnCommands::handler`] returns.
-struct CommandHandler<'c, C: ?Sized, T, F> {
-    catalog: &'c C,
-    dispatch: F,
-    action: PhantomData<fn(T)>,
+type Parser<T> = for<'a> fn(&'a str) -> Option<Command<'a, T>>;
+
+/// The phrases of one language that spell the commands of an action enum.
+///
+/// Declare a vocabulary with [`vocabulary!`](crate::vocabulary) or use the derived patterns
+/// from [`Vocabulary::derived`]. A vocabulary is `Copy`, and the macro expands to a
+/// constant expression, so firmware can keep one per language in a `static`.
+///
+/// The generated matcher borrows the input without allocating. Field types'
+/// [`FromStr`](core::str::FromStr) implementations and custom parsers passed to
+/// [`Vocabulary::new`] can allocate.
+pub struct Vocabulary<T> {
+    parse: Parser<T>,
 }
 
-impl<C, T, F, S, E> TurnHandler<T> for CommandHandler<'_, C, T, F>
+impl<T> Vocabulary<T> {
+    /// Wraps a parser that extracts the command spelled by all of its input.
+    #[must_use]
+    pub const fn new(parse: fn(&str) -> Option<Command<'_, T>>) -> Self {
+        Self { parse }
+    }
+
+    /// Extracts the command that spells all of `input`, or returns `None`.
+    #[must_use]
+    pub fn parse<'a>(&self, input: &'a str) -> Option<Command<'a, T>> {
+        (self.parse)(input)
+    }
+}
+
+impl<T: TurnCommands> Vocabulary<T> {
+    /// Wraps the action's [`TurnCommands::parse_command`] as a vocabulary.
+    ///
+    /// Pass it to [`CommandHandler::new`] to start with that parser, or to
+    /// [`CommandHandler::set_vocabulary`] to restore it after switching languages.
+    #[must_use]
+    pub const fn derived() -> Self {
+        Self::new(T::parse_command)
+    }
+}
+
+impl<T> Clone for Vocabulary<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for Vocabulary<T> {}
+
+impl<T> fmt::Debug for Vocabulary<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("Vocabulary").finish_non_exhaustive()
+    }
+}
+
+/// The vocabulary that a [`CommandHandler`] parses with, compiled or built at run time.
+///
+/// Both a [`Vocabulary`] and a [`RuntimeVocabulary`] convert into it, so the methods of
+/// [`CommandHandler`] accept either.
+pub struct ActiveVocabulary<T>(Source<T>);
+
+enum Source<T> {
+    Compiled(Parser<T>),
+    Runtime(RuntimeVocabulary<T>),
+}
+
+impl<T> ActiveVocabulary<T> {
+    /// Extracts the command that spells all of `input`, or returns `None`.
+    #[must_use]
+    pub fn parse<'a>(&self, input: &'a str) -> Option<Command<'a, T>> {
+        match &self.0 {
+            Source::Compiled(parse) => parse(input),
+            Source::Runtime(words) => words.parse(input),
+        }
+    }
+}
+
+impl<T> From<Vocabulary<T>> for ActiveVocabulary<T> {
+    fn from(vocabulary: Vocabulary<T>) -> Self {
+        Self(Source::Compiled(vocabulary.parse))
+    }
+}
+
+impl<T> From<RuntimeVocabulary<T>> for ActiveVocabulary<T> {
+    fn from(vocabulary: RuntimeVocabulary<T>) -> Self {
+        Self(Source::Runtime(vocabulary))
+    }
+}
+
+impl<T> fmt::Debug for ActiveVocabulary<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut tuple = formatter.debug_tuple("ActiveVocabulary");
+        match &self.0 {
+            Source::Compiled(parse) => tuple.field(&Vocabulary::new(*parse)),
+            Source::Runtime(words) => tuple.field(words),
+        };
+        tuple.finish()
+    }
+}
+
+/// A [`TurnHandler`] whose vocabulary can change between turns.
+///
+/// It parses with its current [`ActiveVocabulary`], so firmware can switch the command
+/// language between turns while the [`Agent`](crate::Agent) keeps the conversation memory.
+pub struct CommandHandler<'c, T, F, C: ?Sized = TargetCatalog>(
+    Handler<'c, C, ActiveVocabulary<T>, F>,
+);
+
+impl<'c, T, F, C: TargetLookup + ?Sized> CommandHandler<'c, T, F, C> {
+    /// Creates a handler that parses with the supplied vocabulary.
+    ///
+    /// The vocabulary is a [`Vocabulary`] or a [`RuntimeVocabulary`].
+    ///
+    /// Like [`TurnCommands::handler`], it accepts any [`TargetLookup`], ignores the
+    /// agent's suggestion, and forwards every dispatch to `dispatch`. The callback
+    /// must reject removed devices, since a previous-target command can reuse a
+    /// remembered ID without a new lookup.
+    pub fn new<S, E>(
+        catalog: &'c C,
+        vocabulary: impl Into<ActiveVocabulary<T>>,
+        dispatch: F,
+    ) -> Self
+    where
+        F: FnMut(T, &[TargetId]) -> Result<S, E>,
+    {
+        Self(Handler {
+            catalog,
+            parse: vocabulary.into(),
+            dispatch,
+        })
+    }
+
+    /// Replaces the phrases the handler understands from the next turn on.
+    ///
+    /// The vocabulary replaces the previous one instead of adding to it, so phrases of the
+    /// old language are no longer recognized. The agent keeps the remembered targets and
+    /// any pending question, because they belong to the agent and not to the handler.
+    /// A replaced [`RuntimeVocabulary`] is dropped, which frees its heap.
+    pub fn set_vocabulary(&mut self, vocabulary: impl Into<ActiveVocabulary<T>>) {
+        self.0.parse = vocabulary.into();
+    }
+}
+
+impl<T, F, C: fmt::Debug + ?Sized> fmt::Debug for CommandHandler<'_, T, F, C> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommandHandler")
+            .field("catalog", &self.0.catalog)
+            .field("vocabulary", &self.0.parse)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T, F, C, S, E> TurnHandler<T> for CommandHandler<'_, T, F, C>
 where
     C: TargetLookup + ?Sized,
-    T: TurnCommands,
+    F: FnMut(T, &[TargetId]) -> Result<S, E>,
+{
+    type Success = S;
+    type Error = E;
+
+    fn parse<'a>(&self, input: &'a str, suggested: Option<&T>) -> Option<Command<'a, T>> {
+        self.0.parse(input, suggested)
+    }
+
+    fn resolve_targets(&self, selector: &str) -> TargetMatch {
+        self.0.resolve_targets(selector)
+    }
+
+    fn target_available(&self, target: TargetId) -> bool {
+        self.0.target_available(target)
+    }
+
+    fn matches_target(&self, target: TargetId, reply: &str) -> bool {
+        self.0.matches_target(target, reply)
+    }
+
+    fn dispatch(&mut self, action: T, targets: &[TargetId]) -> Result<S, E> {
+        self.0.dispatch(action, targets)
+    }
+}
+
+/// Shares catalog and dispatch handling, storing no pointer for a fixed function item.
+struct Handler<'c, C: ?Sized, P, F> {
+    catalog: &'c C,
+    parse: P,
+    dispatch: F,
+}
+
+/// What [`Handler`] parses with: a parser function or the vocabulary of a
+/// [`CommandHandler`].
+trait ParseInput<T> {
+    fn parse_input<'a>(&self, input: &'a str) -> Option<Command<'a, T>>;
+}
+
+impl<T, P> ParseInput<T> for P
+where
+    P: for<'a> Fn(&'a str) -> Option<Command<'a, T>>,
+{
+    fn parse_input<'a>(&self, input: &'a str) -> Option<Command<'a, T>> {
+        self(input)
+    }
+}
+
+impl<T> ParseInput<T> for ActiveVocabulary<T> {
+    fn parse_input<'a>(&self, input: &'a str) -> Option<Command<'a, T>> {
+        self.parse(input)
+    }
+}
+
+impl<C, T, P, F, S, E> TurnHandler<T> for Handler<'_, C, P, F>
+where
+    C: TargetLookup + ?Sized,
+    P: ParseInput<T>,
     F: FnMut(T, &[TargetId]) -> Result<S, E>,
 {
     type Success = S;
     type Error = E;
 
     fn parse<'a>(&self, input: &'a str, _suggested: Option<&T>) -> Option<Command<'a, T>> {
-        T::parse_command(input)
+        self.parse.parse_input(input)
     }
 
     fn resolve_targets(&self, selector: &str) -> TargetMatch {
@@ -116,6 +323,12 @@ where
 #[must_use]
 pub fn trim_sentence(text: &str) -> &str {
     text.trim().trim_end_matches(['.', '!', '?']).trim_end()
+}
+
+/// Removes leading whitespace and a trailing run of whitespace and sentence punctuation.
+#[must_use]
+pub fn trim_vocabulary(text: &str) -> &str {
+    trim_target_suffix(text.trim_start())
 }
 
 /// Maps the text of a `{target}` capture to a selector.

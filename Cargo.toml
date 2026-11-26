@@ -16,6 +16,7 @@ criterion = "0.8"
 critical-section = "1"
 esp-agent = { path = "crates/esp-agent" }
 esp-agent-macros = { path = "crates/esp-agent-macros", version = "0.1" }
+esp-agent-patterns = { path = "crates/esp-agent-patterns", version = "0.1" }
 esp-alloc = "0.11"
 esp-backtrace = "0.20"
 esp-bootloader-esp-idf = "0.6"

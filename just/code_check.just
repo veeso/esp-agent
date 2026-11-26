@@ -47,27 +47,27 @@ clippy_bench args="": download_test_model
 # Build the library documentation for the ESP32-S3 and deny warnings.
 [group('code-check')]
 doc_s3 args="":
-  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ args }}
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros --package esp-agent-patterns {{ args }}
 
 # Build the library documentation for the ESP32-S31 and deny warnings.
 [group('code-check')]
 doc_s31 args="":
-  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ s31_target }} {{ args }}
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros --package esp-agent-patterns {{ s31_target }} {{ args }}
 
 # Build the library documentation for the ESP32-C5 and deny warnings.
 [group('code-check')]
 doc_c5 args="":
-  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ c5_target }} {{ args }}
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros --package esp-agent-patterns {{ c5_target }} {{ args }}
 
 # Build the library documentation for the ESP32-C6 and deny warnings.
 [group('code-check')]
 doc_c6 args="":
-  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ c6_target }} {{ args }}
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros --package esp-agent-patterns {{ c6_target }} {{ args }}
 
 # Build the library documentation for the ESP32-P4 and deny warnings.
 [group('code-check')]
 doc_p4 args="":
-  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros {{ p4_target }} {{ args }}
+  RUSTDOCFLAGS="-D warnings" cargo doc --locked --release --no-deps --package esp-agent --package esp-agent-macros --package esp-agent-patterns {{ p4_target }} {{ args }}
 
 # Build the library documentation for every supported chip and deny warnings.
 [group('code-check')]

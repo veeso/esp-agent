@@ -111,6 +111,8 @@
 //! enum Action {
 //!     #[command("turn on {target}", "turn {target} on")]
 //!     TurnOn,
+//!     #[command("turn off {target}", "turn {target} off")]
+//!     TurnOff,
 //!     #[command("dim {target} to {level}%")]
 //!     SetBrightness { level: Percent },
 //! }
@@ -123,6 +125,46 @@
 //! [`DynamicTargetCatalog`] instead. Build each entry with [`target!`], insert it, and pass
 //! the catalog to [`TurnCommands::handler`] exactly like a `targets!` catalog. The handler
 //! accepts any [`TargetLookup`].
+//!
+//! A device with a language setting can switch its commands at run time. [`vocabulary!`]
+//! declares the phrases of one language, including `previous` phrases such as the Italian
+//! "spegnila" that refer to the last target without naming it. Build the handler with
+//! [`CommandHandler::new`] and select the language between turns with
+//! [`CommandHandler::set_vocabulary`]. With turn memory enabled, the agent remembers
+//! the desk lamp from the first successful turn and keeps it across the switch:
+//!
+//! ```rust,ignore
+//! use esp_agent::{CommandHandler, TurnOutcome, Vocabulary, vocabulary};
+//!
+//! static ITALIAN: Vocabulary<Action> = vocabulary! {
+//!     Action::TurnOn => explicit ["accendi {target}"], previous ["accendila", "accendilo"];
+//!     Action::TurnOff => explicit ["spegni {target}"], previous ["spegnila", "spegnilo"];
+//! };
+//!
+//! let mut handler = CommandHandler::new(&LAMPS, Vocabulary::<Action>::derived(), |action, ids| {
+//!     home.dispatch(action, ids)
+//! });
+//! assert!(matches!(agent.turn("Turn on desk lamp", &mut handler), TurnOutcome::Executed(_)));
+//!
+//! handler.set_vocabulary(ITALIAN);
+//! // Dispatches TurnOff on the same desk lamp.
+//! assert!(matches!(agent.turn("Spegnila", &mut handler), TurnOutcome::Executed(_)));
+//! ```
+//!
+//! The phrases of a language can also arrive at run time, for example from a coordinator.
+//! A [`RuntimeVocabulary`] is built from strings, checks each one with the rules of
+//! [`vocabulary!`] within [`VocabularyLimits`], and returns a [`VocabularyError`] instead of
+//! aborting. `#[derive(TurnCommands)]` implements [`NamedActions`], so phrases name the
+//! variants directly:
+//!
+//! ```rust,ignore
+//! use esp_agent::RuntimeVocabulary;
+//!
+//! let mut german = RuntimeVocabulary::<Action>::new();
+//! german.insert_explicit("TurnOff", "schalte {target} aus")?;
+//! german.insert_previous("TurnOff", "ausschalten")?;
+//! handler.set_vocabulary(german);
+//! ```
 //!
 //! The macros and the handler are independent. A handwritten [`TurnHandler`] can call
 //! [`TurnCommands::parse_command`] from its `parse`, try input of its own after it, and
@@ -170,6 +212,7 @@ mod index;
 mod knowledge;
 mod model;
 mod retriever;
+mod runtime_vocabulary;
 mod scratch;
 mod tokenizer;
 
@@ -178,7 +221,7 @@ pub use agent::{Agent, AgentBuilder, AgentError};
 #[doc(inline)]
 pub use catalog::{CatalogError, DynamicTarget, DynamicTargetCatalog, TargetCatalog, TargetLookup};
 #[doc(inline)]
-pub use commands::TurnCommands;
+pub use commands::{ActiveVocabulary, CommandHandler, TurnCommands, Vocabulary};
 #[doc(inline)]
 pub use context::{Command, TargetId, TargetMatch, TargetSelector, TurnHandler, TurnOutcome};
 #[doc(inline)]
@@ -193,6 +236,10 @@ pub use knowledge::Knowledge;
 pub use model::Model;
 #[doc(inline)]
 pub use retriever::TextHit;
+#[doc(inline)]
+pub use runtime_vocabulary::{
+    ActionSpec, NamedActions, RuntimeVocabulary, VocabularyError, VocabularyLimits,
+};
 #[doc(inline)]
 pub use scratch::Scratch;
 #[doc(inline)]
@@ -306,14 +353,65 @@ macro_rules! target {
     }};
 }
 
-/// Support items for the expansion of [`model!`], [`targets!`], and [`target!`]. Not part of
+/// Declares the phrases of one language for an action enum, and evaluates to a
+/// [`Vocabulary`].
+///
+/// Each entry names an enum variant and one or two clauses. Separate entries with
+/// semicolons; the final semicolon is optional.
+///
+/// ```text
+/// ENTRY := Enum::Variant [ { field: Type, .. } ] => CLAUSE [, CLAUSE]
+/// CLAUSE := explicit ["pattern", ..] | previous ["phrase", ..]
+/// ```
+///
+/// * `explicit` patterns must hold a `{target}` capture, which becomes
+///   [`TargetSelector::Explicit`].
+/// * `previous` phrases must not hold `{target}`. A phrase such as "spegnila" refers to the
+///   previous target as a whole and becomes [`TargetSelector::Previous`].
+///
+/// Patterns use the syntax of `#[command("..")]` (see [`TurnCommands`]), and a variant's
+/// fields are listed with their types so `{field}` captures can be converted with
+/// [`FromStr`](core::str::FromStr). A vocabulary has no previous word: "accendi lo" names a
+/// target "lo", so write follow-ups as `previous` phrases. Spell the enum path identically
+/// in every entry. Put generic arguments on the enum, as in `Dim::<u8>::Set`, not on the
+/// variant. The arguments can use parameters from the enclosing scope, as in
+/// `Dim::<T>::Set`. Literals match ignoring ASCII case only.
+///
+/// The expansion is a constant expression, so it can initialize a `static`. Problems such as
+/// a missing `{target}`, a `{target}` in a `previous` phrase, or a duplicate field or
+/// pattern are compile errors that point at the declaration.
+///
+/// If a nested macro emits a name that conflicts with the generated parser's input binding,
+/// move the enum or field type into a caller-scope type alias and use the alias here.
+///
+/// ```rust,ignore
+/// use esp_agent::{CommandHandler, Vocabulary, vocabulary};
+///
+/// static ITALIAN: Vocabulary<Action> = vocabulary! {
+///     Action::TurnOn => explicit ["accendi {target}"], previous ["accendila", "accendilo"];
+///     Action::TurnOff => explicit ["spegni {target}"], previous ["spegnila", "spegnilo"];
+/// };
+///
+/// let handler = CommandHandler::new(&LAMPS, ITALIAN, |action, ids| home.dispatch(action, ids));
+/// ```
+#[macro_export]
+macro_rules! vocabulary {
+    ($($input:tt)*) => {
+        $crate::_private::compile_vocabulary!([$crate] $($input)*)
+    };
+}
+
+/// Support items for [`model!`], [`targets!`], [`target!`], and [`vocabulary!`]. Not part of
 /// the public API.
 #[doc(hidden)]
 pub mod _private {
-    pub use esp_agent_macros::{compile_model, compile_target, compile_targets};
+    pub use esp_agent_macros::{
+        compile_model, compile_target, compile_targets, compile_vocabulary,
+    };
 
     pub use crate::catalog::{RawCatalog, RawDevice, RawSelector};
-    pub use crate::commands::{CaptureMatch, selector, split, trim_sentence};
+    pub use crate::commands::{CaptureMatch, selector, split, trim_sentence, trim_vocabulary};
+    pub use crate::runtime_vocabulary::RuntimeMatch;
 
     /// Builds a [`TargetCatalog`](crate::TargetCatalog) from the declarations `targets!`
     /// compiled.

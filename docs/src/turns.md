@@ -71,7 +71,8 @@ implements `Copy`.
 You do not need to write the handler by hand. `targets!` declares the devices
 and the phrases that name them, and `#[derive(TurnCommands)]` declares the
 commands on your action enum. The [turn macros reference](reference/turn-macros.md)
-covers every rule. The home assistant firmware declares both.
+covers every rule. The home assistant firmware declares both. To switch the
+command language at run time, see [Switching languages](languages.md).
 
 ## Example with the home assistant
 

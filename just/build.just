@@ -27,7 +27,7 @@ host_toolchain := "1.97"
 host_cargo := "cargo +" + host_toolchain
 
 # Library packages that build and test on regular computers.
-host_packages := "--package esp-agent --package esp-agent-macros"
+host_packages := "--package esp-agent --package esp-agent-macros --package esp-agent-patterns"
 
 # Folder the example firmware and the tests embed the model from.
 example_model_dir := "examples/" + example + "/model"

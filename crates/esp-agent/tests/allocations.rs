@@ -123,11 +123,14 @@ fn search_into_ranks_increasing_scores_in_reused_storage() {
 
 #[test]
 fn command_matcher_borrows_input_without_heap_allocation() {
-    use esp_agent::{TargetSelector, TurnCommands};
+    use esp_agent::{TargetSelector, TurnCommands, vocabulary};
     #[derive(TurnCommands)]
     enum Op {
         #[command("read {target} at {sample}")]
-        Read { sample: u8 },
+        Read {
+            sample: u8,
+        },
+        Stop,
     }
     let line = String::from("read météo at 7");
     assert_eq!(
@@ -138,6 +141,28 @@ fn command_matcher_borrows_input_without_heap_allocation() {
                 panic!()
             };
             assert_eq!(target.as_ptr(), line[5..].as_ptr());
+        }),
+        0
+    );
+
+    let italian = vocabulary! {
+        Op::Read { sample: u8 } => explicit ["leggi {target} a {sample}"];
+        Op::Stop => previous ["fermati"];
+    };
+    let line = String::from("leggi météo a 7");
+    assert_eq!(
+        allocations_during(|| {
+            let cmd = italian.parse(std::hint::black_box("Fermati!")).unwrap();
+            assert!(matches!(cmd.action, Op::Stop));
+            assert_eq!(cmd.target, TargetSelector::Previous);
+
+            let cmd = italian.parse(std::hint::black_box(&line)).unwrap();
+            assert!(matches!(cmd.action, Op::Read { sample: 7 }));
+            let TargetSelector::Explicit(target) = cmd.target else {
+                panic!("expected an explicit target")
+            };
+            assert_eq!(target, "météo");
+            assert_eq!(target.as_ptr(), line[6..].as_ptr());
         }),
         0
     );
@@ -191,4 +216,65 @@ fn dynamic_catalog_lookups_allocate_only_returned_target_lists() {
             "resolve_targets({selector:?})"
         );
     }
+}
+
+#[test]
+fn runtime_vocabulary_parse_does_not_allocate() {
+    use esp_agent::{RuntimeVocabulary, TargetSelector, TurnCommands};
+    #[derive(TurnCommands)]
+    enum Op {
+        #[command("stop {target}")]
+        Stop,
+        #[command("read {target} at {sample}")]
+        Read { sample: u8 },
+    }
+    let mut words = RuntimeVocabulary::<Op>::new();
+    words.insert_explicit("Stop", "spegni {target}").unwrap();
+    words.insert_previous("Stop", "spegnila").unwrap();
+    words
+        .insert_explicit("Read", "leggi {target} a {sample}")
+        .unwrap();
+    let line = String::from("leggi météo a 7");
+
+    let allocations = allocations_during(|| {
+        let cmd = words.parse(std::hint::black_box("spegni Luna")).unwrap();
+        assert!(matches!(cmd.action, Op::Stop));
+        assert_eq!(cmd.target, TargetSelector::Explicit("Luna"));
+
+        let cmd = words.parse(std::hint::black_box("Spegnila!")).unwrap();
+        assert_eq!(cmd.target, TargetSelector::Previous);
+
+        let cmd = words.parse(std::hint::black_box(&line)).unwrap();
+        assert!(matches!(cmd.action, Op::Read { sample: 7 }));
+        let TargetSelector::Explicit(target) = cmd.target else {
+            panic!("expected an explicit target")
+        };
+        assert_eq!(target.as_ptr(), line[6..].as_ptr());
+        assert!(words.parse(std::hint::black_box("niente")).is_none());
+    });
+
+    assert_eq!(allocations, 0);
+}
+
+#[test]
+fn refusing_a_phrase_of_captures_stops_at_the_capture_limit() {
+    use esp_agent::{RuntimeVocabulary, TurnCommands, VocabularyError};
+    #[derive(TurnCommands)]
+    #[expect(dead_code, reason = "the test only offers phrases for the field")]
+    enum Op {
+        #[command("set {target} {a}")]
+        Set { a: u8 },
+    }
+    let mut words = RuntimeVocabulary::<Op>::new();
+    // As long as the default limits allow, and nothing but captures.
+    let phrase = "{a}x".repeat(4096);
+
+    let allocations = allocations_during(|| {
+        assert_eq!(
+            words.insert_previous("Set", &phrase),
+            Err(VocabularyError::TooManyCaptures)
+        );
+    });
+
+    assert!(allocations < 32, "{allocations} allocations");
 }
