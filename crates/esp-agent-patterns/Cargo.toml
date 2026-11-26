@@ -1,0 +1,18 @@
+[package]
+name = "esp-agent-patterns"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "../../README.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Pattern rules shared by esp-agent and its macros"
+
+[lints.clippy]
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+[lints.rust]
+missing_debug_implementations = "warn"
+missing_docs = "warn"

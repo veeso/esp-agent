@@ -242,6 +242,9 @@ any device is missing.
 The derive implements `TurnCommands::parse_command` for an enum. Each variant
 with `#[command("pattern", ..)]` attributes can be spelled by the user.
 Variants without the attribute are skipped so handwritten code can build them.
+The derive also implements `NamedActions`, so a
+[run-time vocabulary](vocabularies.md#run-time-vocabularies) can spell the same
+variants by name.
 
 ```rust
 {{#include ../../../examples/semantic-search/src/home.rs:examples}}
@@ -290,8 +293,12 @@ the derived parser, looks targets up in the catalog, and forwards dispatch to
 `TargetCatalog`, a `DynamicTargetCatalog`, or any type that implements
 `TargetLookup`. The adapter uses `TargetLookup::target_available` to check
 pending choices. The default keeps every choice and is used by `TargetCatalog`.
-The adapter ignores the agent's suggestion and always checks the input. For a
-handler of your own, call `Action::parse_command` from `parse`, as the
+
+The adapter ignores the agent's suggestion and always checks the input. Use
+`CommandHandler::new(&CATALOG, Vocabulary::<Action>::derived(), callback)`
+instead to get a handler whose vocabulary you can replace at run time. It
+accepts the same catalogs. See [Vocabularies](vocabularies.md). For a handler of
+your own, call `Action::parse_command` from `parse`, as the
 [firmware example](../turns.md#a-question-that-the-firmware-owns) does.
 
 When storing a handler for a local catalog, pass `&catalog` rather than

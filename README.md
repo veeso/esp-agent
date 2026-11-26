@@ -21,7 +21,9 @@ generate it. Today it can:
 - search stored texts by meaning;
 - recognize the commands your firmware declares and hand them to it to run;
 - ask a question when a request is ambiguous, and remember what the last
-  request referred to.
+  request referred to;
+- switch the command language while it runs, including to phrases received from
+  the network.
 
 Each firmware chooses which [static embedding models](#embedding-models) to
 include. The semantic search example embeds `potion-base-2M` and reads
@@ -127,6 +129,8 @@ static LAMPS: TargetCatalog = targets! {
 enum Action {
     #[command("turn on {target}", "turn {target} on")]
     TurnOn,
+    #[command("turn off {target}", "turn {target} off")]
+    TurnOff,
     #[command("dim {target} to {level} percent", "dim {target} to {level}%")]
     SetBrightness { level: Percent },
 }
@@ -141,6 +145,39 @@ so one dispatch acts on both lamps. The patterns match the whole line and
 convert each value with its `FromStr`, so "Dim it to 150%" is not a command.
 Both macros check their declarations at build time, and matching borrows the
 input without allocating.
+
+To change the command language while a conversation runs, declare a vocabulary
+with `vocabulary!`. Build your handler with `CommandHandler::new` and
+select the language with `set_vocabulary`. A `previous` phrase such as "spegnila"
+refers to the last target without naming it, and the agent keeps its memory
+across the switch:
+
+```rust
+use esp_agent::{CommandHandler, Vocabulary, vocabulary};
+
+static ITALIAN: Vocabulary<Action> = vocabulary! {
+    Action::TurnOn => explicit ["accendi {target}"], previous ["accendila", "accendilo"];
+    Action::TurnOff => explicit ["spegni {target}"], previous ["spegnila", "spegnilo"];
+};
+let mut handler = CommandHandler::new(&LAMPS, Vocabulary::<Action>::derived(), |action, ids| {
+    home.dispatch(action, ids)
+});
+handler.set_vocabulary(ITALIAN);
+```
+
+A language can also arrive at run time, for example from a coordinator on your
+network. Build a `RuntimeVocabulary` from its strings and install it the same
+way. Each phrase is checked as `vocabulary!` checks it, within limits that you
+set, and a bad or oversized phrase returns an error instead of aborting:
+
+```rust
+use esp_agent::RuntimeVocabulary;
+
+let mut german = RuntimeVocabulary::<Action>::new();
+german.insert_explicit("TurnOff", "schalte {target} aus")?;
+german.insert_previous("TurnOff", "ausschalten")?;
+handler.set_vocabulary(german);
+```
 
 To ask for a value that a command lacks, write the handler by hand and call the
 derived parser from `parse`. The agent owns the question about the target. The
@@ -275,7 +312,7 @@ Rebuild any stored embeddings when you switch models.
 - `crates/esp-agent/src/embedder.rs` looks up the token rows, mean-pools them, and optionally L2-normalizes (`normalize`, default `true`). Its settings live in `EmbedderConfig`.
 - `crates/esp-agent/src/index.rs` is `Index`, a brute-force in-memory vector index: one contiguous buffer of floats plus a payload per entry, searched by cosine similarity.
 - `crates/esp-agent/src/knowledge.rs` is `Knowledge`, the store that pairs an `Embedder` with an `Index` and keeps the original texts.
-- `crates/esp-agent/src/agent.rs` is `Agent`, which borrows a `Knowledge` store, answers prompts with the closest stored texts, and runs conversation turns. `crates/esp-agent/src/context.rs` holds its bounded conversation memory and the `TurnHandler` types. `crates/esp-agent/src/catalog.rs` is `TargetCatalog`, the read-only device catalog that `targets!` builds, and the `TargetLookup` trait that it shares with `DynamicTargetCatalog`, the owned catalog that firmware fills at runtime and that lives in `crates/esp-agent/src/catalog/dynamic.rs`. `crates/esp-agent/src/commands.rs` is the `TurnCommands` trait, its handler adapter, and the matching helpers the derive uses. `crates/esp-agent-macros/src/catalog.rs` and `commands.rs` compile the two declarations while the firmware builds, and `target.rs` compiles the arguments of `target!`. `crates/esp-agent/src/retriever.rs` is the internal search it forwards to.
+- `crates/esp-agent/src/agent.rs` is `Agent`, which borrows a `Knowledge` store, answers prompts with the closest stored texts, and runs conversation turns. `crates/esp-agent/src/context.rs` holds its bounded conversation memory and the `TurnHandler` types. `crates/esp-agent/src/catalog.rs` is `TargetCatalog`, the read-only device catalog that `targets!` builds, and the `TargetLookup` trait that it shares with `DynamicTargetCatalog`, the owned catalog that firmware fills at runtime and that lives in `crates/esp-agent/src/catalog/dynamic.rs`. `crates/esp-agent/src/commands.rs` is the `TurnCommands` trait, the switchable `CommandHandler` and its `Vocabulary`, and the matching helpers. `crates/esp-agent/src/runtime_vocabulary.rs` is `RuntimeVocabulary`, the vocabulary that firmware builds from strings at runtime. `crates/esp-agent-patterns` holds the pattern rules that the library and the macros share. `crates/esp-agent-macros/src/catalog.rs` and `commands.rs` compile the static catalog and command declarations, `target.rs` compiles the arguments of `target!`, and `vocabulary.rs` compiles `vocabulary!`. `crates/esp-agent/src/retriever.rs` is the internal search it forwards to.
 - `examples/semantic-search` is an example firmware. It embeds the potion-2M
   model from `examples/semantic-search/model/` (downloaded, not tracked by
   git), indexes sample sentences in a

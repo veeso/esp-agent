@@ -5,6 +5,7 @@ mod commands;
 mod compile;
 mod expand;
 mod target;
+mod vocabulary;
 
 use std::path::PathBuf;
 
@@ -31,6 +32,14 @@ pub fn compile_target(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(TurnCommands, attributes(command, commands))]
 pub fn derive_turn_commands(input: TokenStream) -> TokenStream {
     commands::expand(input.into())
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
+
+/// Compiles the phrases of `vocabulary!` into a `Vocabulary` expression.
+#[proc_macro]
+pub fn compile_vocabulary(input: TokenStream) -> TokenStream {
+    vocabulary::expand(input.into())
         .unwrap_or_else(|error| error.to_compile_error())
         .into()
 }

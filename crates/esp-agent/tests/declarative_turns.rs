@@ -31,7 +31,7 @@ fn catalog_distinguishes_commands_from_replies() {
     assert_eq!(LIGHTS.name(3), None);
 }
 
-use esp_agent::{Command, TargetSelector, TurnCommands, TurnHandler};
+use esp_agent::{Command, CommandHandler, TargetSelector, TurnCommands, TurnHandler, Vocabulary};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Level(u8);
@@ -122,6 +122,115 @@ fn adapter_accepts_concrete_and_erased_catalog_references() {
         Op::handler(lookup, |_, _| Ok::<(), ()>(())).resolve_targets("desk lamp"),
         TargetMatch::Resolved(vec![1])
     );
+}
+
+#[test]
+fn derived_commands_do_not_shadow_a_firmware_vocabulary() {
+    #[derive(Debug, PartialEq, Eq, TurnCommands)]
+    #[commands(previous = "it")]
+    enum Light {
+        #[command("turn {target} off")]
+        Off,
+    }
+
+    trait SpokenActions: Sized {
+        fn vocabulary() -> Vocabulary<Self>;
+    }
+
+    impl SpokenActions for Light {
+        fn vocabulary() -> Vocabulary<Self> {
+            esp_agent::vocabulary! { Light::Off => previous ["spegnila"]; }
+        }
+    }
+
+    let dispatch = |_, _: &[u32]| Ok::<_, ()>(());
+    let fixed = Light::handler(&LIGHTS, dispatch);
+    let switchable = CommandHandler::new(&LIGHTS, Light::vocabulary(), dispatch);
+    let off = Some(Command {
+        action: Light::Off,
+        target: TargetSelector::Previous,
+    });
+    assert_eq!(fixed.parse("turn it off", None), off);
+    assert_eq!(fixed.parse("spegnila", None), None);
+    assert_eq!(switchable.parse("turn it off", None), None);
+    assert_eq!(switchable.parse("spegnila", None), off);
+}
+
+#[test]
+fn default_handler_does_not_store_a_parser_pointer() {
+    let fixed = Op::handler(&LIGHTS, |_, _: &[u32]| Ok::<_, ()>(()));
+    assert_eq!(core::mem::size_of_val(&fixed), size_of::<&TargetCatalog>());
+}
+
+#[test]
+fn manual_turn_commands_can_override_the_handler() {
+    use esp_agent::TargetId;
+
+    struct Select;
+    struct CustomHandler<'a, C: ?Sized, F>(&'a C, F);
+
+    impl<C, F, S, E> TurnHandler<Select> for CustomHandler<'_, C, F>
+    where
+        C: TargetLookup + ?Sized,
+        F: FnMut(Select, &[TargetId]) -> Result<S, E>,
+    {
+        type Success = S;
+        type Error = E;
+
+        fn parse<'a>(&self, input: &'a str, _: Option<&Select>) -> Option<Command<'a, Select>> {
+            Some(Command {
+                action: Select,
+                target: TargetSelector::Explicit(input.strip_prefix("pick ")?),
+            })
+        }
+
+        fn resolve_targets(&self, selector: &str) -> TargetMatch {
+            self.0.resolve_targets(selector)
+        }
+
+        fn matches_target(&self, target: TargetId, reply: &str) -> bool {
+            self.0.matches_target(target, reply)
+        }
+
+        fn dispatch(&mut self, action: Select, targets: &[TargetId]) -> Result<S, E> {
+            (self.1)(action, targets)
+        }
+    }
+
+    impl TurnCommands for Select {
+        fn parse_command(input: &str) -> Option<Command<'_, Self>> {
+            Some(Command {
+                action: Select,
+                target: TargetSelector::Explicit(input.strip_prefix("select ")?),
+            })
+        }
+
+        fn handler<F, S, E>(
+            catalog: &(impl TargetLookup + ?Sized),
+            dispatch: F,
+        ) -> impl TurnHandler<Self, Success = S, Error = E>
+        where
+            F: FnMut(Self, &[TargetId]) -> Result<S, E>,
+        {
+            CustomHandler(catalog, dispatch)
+        }
+    }
+
+    let dispatch = |_, _: &[TargetId]| Ok::<_, ()>(());
+    let adapter = Select::handler(&LIGHTS, dispatch);
+    let switchable = CommandHandler::new(&LIGHTS, Vocabulary::<Select>::derived(), dispatch);
+    let target = Some(TargetSelector::Explicit("desk lamp"));
+    for (input, direct, legacy, switched) in [
+        ("select desk lamp", target, None, target),
+        ("pick desk lamp", None, target, None),
+    ] {
+        assert_eq!(Select::parse_command(input).map(|cmd| cmd.target), direct);
+        assert_eq!(adapter.parse(input, None).map(|cmd| cmd.target), legacy);
+        assert_eq!(
+            switchable.parse(input, None).map(|cmd| cmd.target),
+            switched
+        );
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, TurnCommands)]
@@ -222,18 +331,24 @@ fn typed_fields_prune_invalid_prefixes() {
         },
     }
     let target = "the lamp in the far corner of the living room by the door";
-    assert_eq!(
-        Op::parse_command(&format!("set {target} 1 2 3 4")),
-        Some(Command {
-            action: Op::Set {
-                a: Number(1),
-                b: Number(2),
-                c: Number(3),
-                d: Number(4)
-            },
-            target: TargetSelector::Explicit(target)
-        })
-    );
+    let input = format!("set {target} 1 2 3 4");
+    let expected = Some(Command {
+        action: Op::Set {
+            a: Number(1),
+            b: Number(2),
+            c: Number(3),
+            d: Number(4),
+        },
+        target: TargetSelector::Explicit(target),
+    });
+    assert_eq!(Op::parse_command(&input), expected);
+    let calls = CALLS.swap(0, Ordering::Relaxed);
+    assert!(calls < 200, "{calls} derived field conversions");
+    let mut words = esp_agent::RuntimeVocabulary::<Op>::new();
+    words
+        .insert_explicit("Set", "set {target} {a} {b} {c} {d}")
+        .unwrap();
+    assert_eq!(words.parse(&input), expected);
     let calls = CALLS.load(Ordering::Relaxed);
     assert!(calls < 200, "{calls} field conversions");
 }
@@ -1121,4 +1236,36 @@ fn target_macro_preserves_the_callers_dynamic_target_name() {
         catalog.resolve_targets("desk lamp"),
         TargetMatch::Resolved(vec![17])
     );
+}
+
+#[test]
+fn adapter_parses_with_the_vocabulary_it_was_given() {
+    fn scegli(input: &str) -> Option<Command<'_, Op>> {
+        input.strip_prefix("scegli ").map(|target| Command {
+            action: Op::Select,
+            target: TargetSelector::Explicit(target),
+        })
+    }
+    let select = |target| {
+        Some(Command {
+            action: Op::Select,
+            target: TargetSelector::Explicit(target),
+        })
+    };
+    let mut adapter = CommandHandler::new(&LIGHTS, Vocabulary::<Op>::derived(), |action, ids| {
+        assert_eq!(action, Op::Select);
+        assert_eq!(ids, &[1]);
+        Err::<(), _>("offline")
+    });
+    assert_eq!(adapter.parse("select desk", None), select("desk"));
+    adapter.set_vocabulary(Vocabulary::new(scegli));
+    assert_eq!(adapter.parse("select desk", Some(&Op::Select)), None);
+    let command = adapter.parse("scegli desk", None);
+    assert_eq!(command, select("desk"));
+    assert_eq!(
+        adapter.dispatch(command.unwrap().action, &[1]),
+        Err("offline")
+    );
+    adapter.set_vocabulary(Vocabulary::derived());
+    assert_eq!(adapter.parse("select desk", None), select("desk"));
 }

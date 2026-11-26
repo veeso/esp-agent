@@ -20,6 +20,7 @@ description = "Bare-metal no_std local agent for ESP32 chips (S3, S31, C5, C6, P
 
 [dependencies]
 esp-agent-macros = { workspace = true }
+esp-agent-patterns = { workspace = true }
 # Text pipeline (no_std): sqrt for L2 normalisation, NFD + Unicode categories for the BERT normalizer.
 libm = { workspace = true }
 unicode-normalization = { workspace = true }

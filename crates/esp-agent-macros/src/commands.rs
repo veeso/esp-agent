@@ -2,46 +2,69 @@
 
 use std::collections::HashSet;
 
+use esp_agent_patterns::{
+    MAX_CAPTURES, Normalization, Pattern, PatternError, Piece, TARGET, TargetRule, parse_pieces,
+    validate,
+};
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::punctuated::Punctuated;
 use syn::{Data, DeriveInput, Fields, Ident, LitStr, Token, Type, Variant};
 
-/// The most captures one pattern can hold, bounding the depth of the runtime search.
-const MAX_CAPTURES: usize = 8;
-
-/// The name that a pattern uses for the target of the command.
-const TARGET: &str = "target";
-
-/// One piece of a command pattern.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum Piece {
-    /// Text that the input must repeat, ignoring ASCII case.
-    Literal(String),
-    /// A named capture such as `{target}`.
-    Capture(String),
-}
-
-/// A validated pattern: the literals around its captures and which name each capture has.
-struct Pattern {
-    /// One more literal than there are captures. Only the first and last can be empty.
-    literals: Vec<String>,
-    /// The name of each capture, in order of appearance.
-    captures: Vec<String>,
-}
-
 /// One action variant with the patterns that spell it.
-struct Action<'a> {
-    variant: &'a Ident,
-    fields: Vec<(&'a Ident, &'a Type)>,
-    patterns: Vec<Pattern>,
+pub(crate) struct Action<'a> {
+    /// The expression that names the variant, such as `Self::TurnOn`.
+    pub(crate) constructor: TokenStream,
+    pub(crate) fields: Vec<(&'a Ident, &'a Type)>,
+    pub(crate) patterns: Vec<Pattern>,
+}
+
+/// The generated locals shared by a parser and its alternatives.
+pub(crate) struct Bindings {
+    pub(crate) input: Ident,
+    pub(crate) operations: Ident,
+    found: Ident,
+    pub(crate) target: Ident,
+    index: Ident,
+    part: Ident,
+    fields: [Ident; MAX_CAPTURES],
+}
+
+impl Bindings {
+    pub(crate) fn new(prefix: &str) -> Self {
+        let ident = |name: &str| format_ident!("{prefix}{name}", span = Span::mixed_site());
+        Self {
+            input: ident("input"),
+            operations: ident("operations"),
+            found: ident("found"),
+            target: ident("target"),
+            index: ident("index"),
+            part: ident("part"),
+            fields: core::array::from_fn(|i| ident(&format!("field_{i}"))),
+        }
+    }
+
+    pub(crate) fn names(&self) -> impl Iterator<Item = &Ident> {
+        [
+            &self.input,
+            &self.operations,
+            &self.found,
+            &self.target,
+            &self.index,
+            &self.part,
+        ]
+        .into_iter()
+        .chain(&self.fields)
+    }
 }
 
 /// Expands the derive input into the `TurnCommands` implementation.
 ///
 /// Every problem is an error that points at the offending attribute or field.
 pub(crate) fn expand(input: proc_macro2::TokenStream) -> syn::Result<TokenStream> {
+    let source = input.to_string();
     let input: DeriveInput = syn::parse2(input)?;
     let Data::Enum(data) = &input.data else {
         return Err(syn::Error::new(
@@ -53,9 +76,11 @@ pub(crate) fn expand(input: proc_macro2::TokenStream) -> syn::Result<TokenStream
 
     let mut seen = HashSet::new();
     let mut actions = Vec::new();
+    let mut names = Vec::new();
     for variant in &data.variants {
         if let Some(action) = parse_action(variant, &mut seen)? {
             actions.push(action);
+            names.push(variant.ident.unraw().to_string());
         }
     }
 
@@ -66,44 +91,199 @@ pub(crate) fn expand(input: proc_macro2::TokenStream) -> syn::Result<TokenStream
         || quote!(::core::option::Option::None),
         |word| quote!(::core::option::Option::Some(#word)),
     );
+    let bindings = Bindings::new("__");
+    let Bindings { input, target, .. } = &bindings;
+    let target = quote!(#library::_private::selector(#target, #previous));
     let alternatives = actions
         .iter()
         .flat_map(|action| {
             action
                 .patterns
                 .iter()
-                .map(|pattern| alternative(&library, &previous, action, pattern))
+                .map(|pattern| alternative(&library, action, pattern, &target, &bindings, None))
         })
         .collect::<Vec<_>>();
+    let body = parser_body(
+        &library,
+        &quote!(Self),
+        &alternatives,
+        &bindings,
+        Normalization::Derive,
+    );
+    // These function aliases keep argument patterns from resolving to caller constants.
+    // Keep them out of the names that the enum and its generic bounds refer to.
+    let mut prefix = "__".to_owned();
+    let parameters = loop {
+        let parameters = ["action", "fields", "field", "text", "matcher"]
+            .map(|name| format_ident!("{prefix}{name}", span = Span::mixed_site()));
+        if parameters
+            .iter()
+            .all(|name| !source.contains(&name.to_string()))
+        {
+            break parameters;
+        }
+        prefix.push('_');
+    };
+    let named_actions = named_actions(&library, &names, &actions, &parameters);
 
     Ok(quote! {
         #[automatically_derived]
         impl #impl_generics #library::TurnCommands for #ident #type_generics #where_clause {
             fn parse_command(
-                __input: &::core::primitive::str,
+                #input: &::core::primitive::str,
             ) -> ::core::option::Option<#library::Command<'_, Self>> {
-                let __input = #library::_private::trim_sentence(__input);
-                let mut __found: ::core::option::Option<#library::Command<'_, Self>> =
-                    ::core::option::Option::None;
-                #(#alternatives)*
-                __found
+                #body
             }
         }
+
+        const _: () = {
+            #(use ::core::mem::drop as #parameters;)*
+            #[automatically_derived]
+            impl #impl_generics #library::NamedActions for #ident #type_generics #where_clause {
+                #named_actions
+            }
+        };
     })
 }
 
-/// Generates the matching of one pattern against the whole input.
-fn alternative(
+/// Generates the items of `NamedActions`: the table of the actions and their constructor.
+fn named_actions(
     library: &TokenStream,
-    previous: &TokenStream,
+    names: &[String],
+    actions: &[Action<'_>],
+    parameters: &[Ident; 5],
+) -> TokenStream {
+    let [action, values, field, text, matcher] = parameters;
+    let specs = names.iter().zip(actions).map(|(name, action)| {
+        let fields = action.fields.iter().map(|(field, _)| field.to_string());
+        quote!(#library::ActionSpec { name: #name, fields: &[#(#fields),*] })
+    });
+    let arms = actions.iter().enumerate().map(|(index, variant)| {
+        let constructor = &variant.constructor;
+        let count = variant.fields.len();
+        let fields = variant.fields.iter().enumerate().map(|(i, (name, ty))| {
+            quote!(#name: <#ty as ::core::str::FromStr>::from_str(#values[#i]).ok()?)
+        });
+        quote! {
+            #index if #values.len() == #count => {
+                ::core::option::Option::Some(#constructor { #(#fields),* })
+            }
+        }
+    });
+    let validators = actions.iter().enumerate().flat_map(|(index, variant)| {
+        variant.fields.iter().enumerate().map(move |(position, (_, ty))| {
+            quote!((#index, #position) => <#ty as ::core::str::FromStr>::from_str(#text).is_ok(),)
+        })
+    });
+    let matchers = actions.iter().enumerate().map(|(index, variant)| {
+        let constructor = &variant.constructor;
+        let slots = variant
+            .fields
+            .iter()
+            .map(|(_, ty)| quote!(::core::option::Option::<#ty>::None));
+        let parsers = variant.fields.iter().enumerate().map(|(i, (_, ty))| {
+            let slot = syn::Index::from(i);
+            quote!(#i => {
+                #values.#slot = <#ty as ::core::str::FromStr>::from_str(#text).ok();
+                #values.#slot.is_some()
+            })
+        });
+        let fields = variant.fields.iter().enumerate().map(|(i, (name, _))| {
+            let slot = syn::Index::from(i);
+            quote!(#name: #values.#slot.take().expect("matched field"))
+        });
+        quote!(#index => #matcher.typed(
+            (#(#slots,)*),
+            |#values, #field, #text| match #field { #(#parsers,)* _ => false },
+            |#values| #constructor { #(#fields),* },
+        ),)
+    });
+    quote! {
+        const ACTIONS: &'static [#library::ActionSpec] = &[#(#specs),*];
+
+        fn accepts_field(
+            #action: ::core::primitive::usize,
+            #field: ::core::primitive::usize,
+            #text: &::core::primitive::str,
+        ) -> ::core::primitive::bool {
+            match (#action, #field) {
+                #(#validators)*
+                _ => false,
+            }
+        }
+
+        fn match_phrase(
+            #action: ::core::primitive::usize,
+            #matcher: #library::_private::RuntimeMatch<'_, '_, Self>,
+        ) -> ::core::primitive::bool {
+            match #action {
+                #(#matchers)*
+                _ => false,
+            }
+        }
+
+        fn build(
+            #action: ::core::primitive::usize,
+            #values: &[&::core::primitive::str],
+        ) -> ::core::option::Option<Self> {
+            match #action {
+                #(#arms)*
+                _ => ::core::option::Option::None,
+            }
+        }
+    }
+}
+
+/// Generates the body of a parser that tries every alternative against the whole input.
+///
+/// Each alternative returns `None` when the input is ambiguous and otherwise records its
+/// command in the parser's result binding.
+pub(crate) fn parser_body(
+    library: &TokenStream,
+    action_ty: &TokenStream,
+    alternatives: &[TokenStream],
+    bindings: &Bindings,
+    normalization: Normalization,
+) -> TokenStream {
+    let Bindings { input, found, .. } = bindings;
+    let trim = match normalization {
+        Normalization::Derive => quote!(trim_sentence),
+        Normalization::Vocabulary => quote!(trim_vocabulary),
+    };
+    quote! {
+        let #input = #library::_private::#trim(#input);
+        let mut #found: ::core::option::Option<#library::Command<'_, #action_ty>> =
+            ::core::option::Option::None;
+        #(#alternatives)*
+        #found
+    }
+}
+
+/// Generates the matching of one pattern against the whole input.
+///
+/// `selector` is the expression of the command's selector. It can read the text that the
+/// `{target}` capture matched through `locals.target`.
+/// `operations`, when present, is a tuple of the constructor and field converters resolved
+/// outside the parser body.
+pub(crate) fn alternative(
+    library: &TokenStream,
     action: &Action<'_>,
     pattern: &Pattern,
+    selector: &TokenStream,
+    locals: &Bindings,
+    operations: Option<&TokenStream>,
 ) -> TokenStream {
-    let variant = action.variant;
+    let Bindings {
+        input,
+        found,
+        target,
+        index,
+        part,
+        ..
+    } = locals;
+    let constructor = &action.constructor;
     let fields = &action.fields;
-    let bindings: Vec<_> = (0..fields.len())
-        .map(|i| format_ident!("__field_{i}", span = Span::mixed_site()))
-        .collect();
+    let bindings = &locals.fields[..fields.len()];
     let names = fields.iter().map(|(name, _)| name);
     let capture_match = quote!(#library::_private::CaptureMatch);
     let conversions = pattern
@@ -112,7 +292,7 @@ fn alternative(
         .enumerate()
         .map(|(position, capture)| {
             if capture == TARGET {
-                return quote!(#position => __target = __part);
+                return quote!(#position => #target = #part);
             }
             let i = fields
                 .iter()
@@ -120,35 +300,72 @@ fn alternative(
                 .expect("a validated capture names a field");
             let ty = fields[i].1;
             let binding = &bindings[i];
+            let parse = operations.map_or_else(
+                || quote!(<#ty as ::core::str::FromStr>::from_str(#part)),
+                |operations| {
+                    let i = syn::Index::from(i + 1);
+                    quote!((#operations.#i)(#part))
+                },
+            );
             quote! {
                 #position => {
-                    #binding = <#ty as ::core::str::FromStr>::from_str(__part).ok();
+                    #binding = #parse.ok();
                     if #binding.is_none() {
                         return #capture_match::Reject;
                     }
                 }
             }
         });
+    let values = bindings
+        .iter()
+        .map(|binding| quote!(#binding.take().expect("matched field")));
+    let action = if let Some(operations) = operations {
+        quote!((#operations.0)((#(#values,)*)))
+    } else {
+        quote!(#constructor { #(#names: #values),* })
+    };
     let literals = &pattern.literals;
+    if pattern.captures.is_empty() {
+        // A phrase without captures matches the whole trimmed input.
+        let [literal] = literals.as_slice() else {
+            unreachable!("a pattern without captures has one literal")
+        };
+        return quote! {
+            if #input.eq_ignore_ascii_case(#literal) {
+                if #found.is_some() {
+                    return ::core::option::Option::None;
+                }
+                #found = ::core::option::Option::Some(#library::Command {
+                    action: #action,
+                    target: #selector,
+                });
+            }
+        };
+    }
     let last = pattern.captures.len() - 1;
+    let target_binding = pattern
+        .captures
+        .iter()
+        .any(|capture| capture == TARGET)
+        .then(|| quote!(let mut #target = "";));
     quote! {
         {
-            let mut __target = "";
+            #target_binding
             #(let mut #bindings = ::core::option::Option::None;)*
-            if #library::_private::split(__input, &[#(#literals),*], |__index, __part| {
-                match __index {
+            if #library::_private::split(#input, &[#(#literals),*], |#index, #part| {
+                match #index {
                     #(#conversions,)*
                     _ => ::core::unreachable!(),
                 }
-                if __index == #last {
-                    if __found.is_some() {
+                if #index == #last {
+                    if #found.is_some() {
                         return #capture_match::Ambiguous;
                     }
                     // Every field was accepted along this path. Only the first match needs
                     // to move the values, so shared prefixes never require Clone.
-                    __found = ::core::option::Option::Some(#library::Command {
-                        action: Self::#variant { #(#names: #bindings.take().expect("matched field")),* },
-                        target: #library::_private::selector(__target, #previous),
+                    #found = ::core::option::Option::Some(#library::Command {
+                        action: #action,
+                        target: #selector,
                     });
                 }
                 #capture_match::Accept
@@ -228,150 +445,111 @@ fn parse_action<'a>(
     };
     let mut patterns = Vec::new();
     for string in &strings {
-        let pieces = parse_pieces(string)?;
-        let pattern = validate(string, &pieces, &fields, variant)?;
-        let key = pieces
-            .iter()
-            .map(|piece| match piece {
-                Piece::Literal(text) => Piece::Literal(text.to_ascii_lowercase()),
-                capture @ Piece::Capture(_) => capture.clone(),
-            })
-            .collect::<Vec<_>>();
-        if !seen.insert(key) {
-            return Err(syn::Error::new(
-                string.span(),
-                format!("duplicate pattern \"{pattern}\"", pattern = string.value()),
-            ));
-        }
-        patterns.push(pattern);
+        patterns.push(parse_pattern(
+            string,
+            &fields,
+            &variant.ident,
+            TargetRule::Required,
+            Normalization::Derive,
+            seen,
+        )?);
     }
     Ok(Some(Action {
-        variant: &variant.ident,
+        constructor: {
+            let variant = &variant.ident;
+            quote!(Self::#variant)
+        },
         fields,
         patterns,
     }))
 }
 
-/// Splits a pattern string into literals and `{name}` captures.
-fn parse_pieces(string: &LitStr) -> syn::Result<Vec<Piece>> {
-    // The input loses its outer whitespace and trailing sentence punctuation before it is
-    // matched, so a pattern that kept them could never match.
-    let value = string.value();
-    let value = value.trim().trim_end_matches(['.', '!', '?']).trim_end();
-    let mut pieces = Vec::new();
-    let mut literal = String::new();
-    let mut chars = value.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '{' if chars.peek() == Some(&'{') => {
-                chars.next();
-                literal.push('{');
-            }
-            '}' if chars.peek() == Some(&'}') => {
-                chars.next();
-                literal.push('}');
-            }
-            '{' => {
-                let mut name = String::new();
-                loop {
-                    match chars.next() {
-                        Some('}') => break,
-                        Some(c) => name.push(c),
-                        None => {
-                            return Err(syn::Error::new(string.span(), "unclosed capture `{`"));
-                        }
-                    }
-                }
-                if name.is_empty() {
-                    return Err(syn::Error::new(string.span(), "empty capture `{}`"));
-                }
-                if !literal.is_empty() {
-                    pieces.push(Piece::Literal(std::mem::take(&mut literal)));
-                }
-                pieces.push(Piece::Capture(name));
-            }
-            '}' => {
-                return Err(syn::Error::new(
-                    string.span(),
-                    "unmatched `}`, write `}}` for a literal brace",
-                ));
-            }
-            c => literal.push(c),
-        }
-    }
-    if !literal.is_empty() {
-        pieces.push(Piece::Literal(literal));
-    }
-    Ok(pieces)
-}
-
-/// Checks the captures of one pattern against the fields of its variant.
-fn validate(
+/// Parses and validates one pattern string, and rejects a pattern that `seen` already holds.
+///
+/// Two patterns are the same when they differ only in the ASCII case of their literals.
+pub(crate) fn parse_pattern(
     string: &LitStr,
-    pieces: &[Piece],
     fields: &[(&Ident, &Type)],
-    variant: &Variant,
+    variant: &Ident,
+    target: TargetRule,
+    normalization: Normalization,
+    seen: &mut HashSet<Vec<Piece>>,
 ) -> syn::Result<Pattern> {
-    let error = |message: String| syn::Error::new(string.span(), message);
-    let mut literals = vec![String::new()];
-    let mut captures: Vec<String> = Vec::new();
-    let mut after_capture = false;
-    for piece in pieces {
-        match piece {
-            Piece::Literal(text) => {
-                literals
-                    .last_mut()
-                    .expect("there is a literal")
-                    .push_str(text);
-                after_capture = false;
-            }
-            Piece::Capture(name) => {
-                if after_capture {
-                    return Err(error(format!(
-                        "adjacent captures in \"{pattern}\" need a literal between them",
-                        pattern = string.value()
-                    )));
-                }
-                if name != TARGET && !fields.iter().any(|(field, _)| *field == name.as_str()) {
-                    return Err(error(format!(
-                        "unknown field `{name}` in \"{pattern}\"",
-                        pattern = string.value()
-                    )));
-                }
-                if captures.contains(name) {
-                    return Err(error(format!("repeated capture `{{{name}}}`")));
-                }
-                captures.push(name.clone());
-                literals.push(String::new());
-                after_capture = true;
-            }
+    let value = string.value();
+    // The build host reads the whole pattern, so that the first broken rule is reported.
+    let pieces = match parse_pieces(&value, normalization, usize::MAX) {
+        Ok(pieces) => pieces,
+        Err(error) => {
+            return Err(syn::Error::new(
+                string.span(),
+                message(&error, &value, variant),
+            ));
         }
-    }
-    if !captures.iter().any(|name| name == TARGET) {
-        return Err(error(format!(
-            "\"{pattern}\" needs a {{target}} capture",
-            pattern = string.value()
-        )));
-    }
-    if let Some((field, _)) = fields
+    };
+    let names = fields
         .iter()
-        .find(|(field, _)| !captures.iter().any(|name| *field == name.as_str()))
-    {
+        .map(|(name, _)| name.to_string())
+        .collect::<Vec<_>>();
+    let names = names.iter().map(String::as_str).collect::<Vec<_>>();
+    let pattern = validate(&pieces, &names, target).map_err(|error| {
+        // A field that no capture names is reported where it is declared.
+        let span = match error {
+            PatternError::MissingField(missing) => fields
+                .iter()
+                .find(|(name, _)| *name == missing)
+                .map_or_else(|| string.span(), |(name, _)| name.span()),
+            _ => string.span(),
+        };
+        syn::Error::new(span, message(&error, &value, variant))
+    })?;
+    let key = pieces
+        .iter()
+        .map(|piece| match piece {
+            Piece::Literal(text) => Piece::Literal(text.to_ascii_lowercase()),
+            capture @ Piece::Capture(_) => capture.clone(),
+        })
+        .collect::<Vec<_>>();
+    if !seen.insert(key) {
         return Err(syn::Error::new(
-            field.span(),
-            format!(
-                "missing field `{field}` in \"{pattern}\" of `{variant}`",
-                pattern = string.value(),
-                variant = variant.ident
-            ),
+            string.span(),
+            format!("duplicate pattern \"{value}\""),
         ));
     }
-    if captures.len() > MAX_CAPTURES {
-        return Err(error(format!(
-            "a pattern holds at most {MAX_CAPTURES} captures"
-        )));
+    Ok(pattern)
+}
+
+/// Words a refused pattern as a compile error.
+///
+/// # Panics
+///
+/// Panics when the build host runs out of memory while checking a pattern.
+fn message(error: &PatternError<'_>, pattern: &str, variant: &Ident) -> String {
+    match error {
+        PatternError::UnclosedCapture => "unclosed capture `{`".to_owned(),
+        PatternError::EmptyCapture => "empty capture `{}`".to_owned(),
+        PatternError::UnmatchedBrace => "unmatched `}`, write `}}` for a literal brace".to_owned(),
+        PatternError::OutOfMemory => {
+            panic!("the build host ran out of memory while checking a command pattern")
+        }
+        PatternError::AdjacentCaptures => {
+            format!("adjacent captures in \"{pattern}\" need a literal between them")
+        }
+        PatternError::UnknownField(name) => {
+            format!("unknown field `{name}` in \"{pattern}\"")
+        }
+        PatternError::TargetInPrevious => {
+            "a previous phrase refers to the previous target and cannot hold {target}".to_owned()
+        }
+        PatternError::RepeatedCapture(name) => format!("repeated capture `{{{name}}}`"),
+        PatternError::MissingTarget => format!("\"{pattern}\" needs a {{target}} capture"),
+        PatternError::MissingField(field) => {
+            format!("missing field `{field}` in \"{pattern}\" of `{variant}`")
+        }
+        PatternError::EmptyPhrase => "empty phrase".to_owned(),
+        PatternError::TooManyCaptures => {
+            format!("a pattern holds at most {MAX_CAPTURES} captures")
+        }
     }
-    Ok(Pattern { literals, captures })
 }
 
 /// Returns the path of the library from the point of view of the crate being compiled.
@@ -414,6 +592,45 @@ mod tests {
                     .contains(reason)
             );
         }
+    }
+
+    /// Pins every pattern message byte for byte, so that the shared rules cannot reword them.
+    #[test]
+    fn commands_keep_the_exact_pattern_messages() {
+        for (pattern, expected) in [
+            ("dim {target", "unclosed capture `{`"),
+            ("dim {}", "empty capture `{}`"),
+            (
+                "dim } {target}",
+                "unmatched `}`, write `}}` for a literal brace",
+            ),
+            (
+                "{target}{level}",
+                "adjacent captures in \"{target}{level}\" need a literal between them",
+            ),
+            (
+                " {nope} {target}!",
+                "unknown field `nope` in \" {nope} {target}!\"",
+            ),
+            ("{target} {level} {level}", "repeated capture `{level}`"),
+            ("dim {level}", "\"dim {level}\" needs a {target} capture"),
+            (
+                "dim {target}",
+                "missing field `level` in \"dim {target}\" of `Dim`",
+            ),
+        ] {
+            let source = format!("enum Op {{ #[command({pattern:?})] Dim {{ level: u8 }} }}");
+            let error = super::expand(source.parse().unwrap()).unwrap_err();
+            assert_eq!(error.to_string(), expected, "{pattern}");
+        }
+        let error = super::expand(
+            "enum Op { #[command(\"{target} {a} {b} {c} {d} {e} {f} {g} {h}\")] \
+             Pick { a: u8, b: u8, c: u8, d: u8, e: u8, f: u8, g: u8, h: u8 } }"
+                .parse()
+                .unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "a pattern holds at most 8 captures");
     }
 
     #[test]
