@@ -618,7 +618,6 @@ const PAYLOAD: &str = r#"{"language":"it","phrases":[
     {"action":"TurnOn","explicit":["accendi {target}"],"previous":["accendila"]},
     {"action":"TurnOff","explicit":["spegni {target}"],"previous":["spegnila"]}]}"#;
 
-// ANCHOR: coordinator
 /// Builds the whole language of a payload, or reports the first problem of it.
 fn vocabulary_from(
     payload: &str,
@@ -651,7 +650,6 @@ fn phrases<'a>(
         .iter()
         .map(|phrase| phrase.as_str().ok_or("a phrase is not a string")))
 }
-// ANCHOR_END: coordinator
 
 type Done = (Action, Vec<TargetId>);
 
@@ -663,7 +661,6 @@ fn done(action: Action, ids: &[TargetId]) -> TurnOutcome<Done, ()> {
     TurnOutcome::Executed((action, ids.to_vec()))
 }
 
-// ANCHOR: runtime_switch
 /// Installs the new language once every phrase in the payload has been accepted.
 fn install_language<F>(
     handler: &mut CommandHandler<'_, Action, F>,
@@ -699,7 +696,6 @@ fn handler_switches_to_a_runtime_vocabulary_and_keeps_the_target() {
         done(Action::TurnOn, &[1])
     );
 }
-// ANCHOR_END: runtime_switch
 
 #[test]
 fn a_pending_question_survives_installing_a_runtime_vocabulary() {

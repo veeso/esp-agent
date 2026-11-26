@@ -72,7 +72,9 @@ You do not need to write the handler by hand. `targets!` declares the devices
 and the phrases that name them, and `#[derive(TurnCommands)]` declares the
 commands on your action enum. The [turn macros reference](reference/turn-macros.md)
 covers every rule. The home assistant firmware declares both. To switch the
-command language at run time, see [Switching languages](languages.md).
+command language at run time, see [Switching languages](languages.md). The
+[discovered devices example](#example-with-discovered-devices) builds the catalog
+at run time and switches language during a conversation.
 
 ## Example with the home assistant
 
@@ -186,3 +188,89 @@ The same walkthrough runs on your computer with `just test` in the
 [home assistant integration test][home-assistant-test].
 
 [home-assistant-test]: https://github.com/veeso/esp-agent/blob/main/crates/esp-agent/tests/home_assistant.rs
+
+## Example with discovered devices
+
+Firmware often learns its devices from a coordinator, such as a hub or a home
+server, and lets the user pick the language of the commands. This example
+follows one lamp, “Luna” with ID 42, through discovery, an English command, a
+switch to Italian, and an Italian follow-up. It uses simulated coordinator data,
+so it runs on your computer. From the repository root, run:
+
+```sh
+just test '--test discovered_devices'
+```
+
+The Rust blocks below are excerpts from the
+[discovered devices test][discovered-test].
+
+### Fill the catalog from discovery
+
+The coordinator reports each device with a stable ID and a name. `target!`
+turns one report into a catalog entry, and the name is what the user says in
+every language.
+
+```rust
+{{#include ../../crates/esp-agent/tests/discovered_devices.rs:discovery}}
+```
+
+### Configure the command phrases
+
+The action enum declares the English phrases:
+
+```rust
+{{#include ../../crates/esp-agent/tests/discovered_devices.rs:actions}}
+```
+
+The other languages are a map of run-time vocabularies. Add a language or
+change a phrase here. [Switching languages](languages.md) explains the rules.
+
+```rust
+{{#include ../../crates/esp-agent/tests/discovered_devices.rs:languages}}
+```
+
+A parser written by hand can accept phrases that no pattern spells. This one
+adds “lights out” to English and returns `TargetSelector::Previous`, so the
+agent turns off the lamp of the last command. Wrap it with `Vocabulary::new`.
+
+```rust
+{{#include ../../crates/esp-agent/tests/discovered_devices.rs:handwritten}}
+```
+
+### Act and reply
+
+The dispatch callback receives the IDs the agent resolved. It is where firmware
+sends the command to the real device.
+
+```rust
+{{#include ../../crates/esp-agent/tests/discovered_devices.rs:dispatch}}
+```
+
+The library returns a `TurnOutcome` and never writes text. Your firmware turns
+the outcome into a reply, so edit `reply` to change or translate what the user
+reads. It looks device names up in the catalog by ID.
+
+```rust
+{{#include ../../crates/esp-agent/tests/discovered_devices.rs:replies}}
+```
+
+### The conversation
+
+The firmware starts in English and switches to Italian between turns. The agent
+remembers Luna across the switch, so “Spegnila” acts on device 42, and each
+assertion checks the ID that the callback received.
+
+```rust
+{{#include ../../crates/esp-agent/tests/discovered_devices.rs:walkthrough}}
+```
+
+```text
+Coordinator supplies device 42 named Luna.
+> Turn on Luna
+Luna is on.
+The device language changes to Italian.
+> Spegnila
+Luna è spenta.
+```
+
+[discovered-test]: https://github.com/veeso/esp-agent/blob/main/crates/esp-agent/tests/discovered_devices.rs
