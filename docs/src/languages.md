@@ -94,79 +94,37 @@ After `NeedTarget`, repeat the command with an explicit target: “Spegni Luna�
 rather than just “Luna”. There is no pending question for a bare target name
 to answer.
 
-## Languages from a coordinator
+## Languages built at run time
 
-A coordinator on the network, such as a hub or a home server, often owns the
-household settings, including the language. It can send the phrases too, so a
-device learns a new language or a corrected translation without being
-reflashed. The firmware builds a `RuntimeVocabulary` from those strings and
-installs it with the same `set_vocabulary` call.
+`vocabulary!` compiles a language into the firmware. A `RuntimeVocabulary` is
+built from plain strings instead, so the phrases can come from a settings file,
+a coordinator on the network, or a table in your code, and a new language does
+not need a new firmware. Insert the phrases of each language and keep the
+results in a map keyed by language code:
 
-The library takes strings, so the wire format is up to the firmware. This
-payload is JSON:
+```rust
+{{#include ../../crates/esp-agent/tests/discovered_devices.rs:languages}}
+```
 
-```json
-{
-  "language": "it",
-  "phrases": [
-    { "action": "TurnOn", "explicit": ["accendi {target}"], "previous": ["accendila"] },
-    { "action": "TurnOff", "explicit": ["spegni {target}"], "previous": ["spegnila"] }
-  ]
+The first argument of each insertion is the name of an enum variant with at
+least one `#[command]`, compared case-sensitively. An insertion that fails
+returns a `VocabularyError` and leaves the vocabulary unchanged.
+
+To change language, give the handler a copy of the vocabulary:
+
+```rust
+if let Some(words) = languages.get("it") {
+    handler.set_vocabulary(words.clone());
 }
 ```
 
-An `action` is the name of an enum variant that carries at least one
-`#[command]`, compared case-sensitively: `TurnOn` is an action and `turnon` is
-not. A variant without `#[command]` cannot be reached from the network. The
-phrases follow the rules of `explicit` and `previous` phrases above, and
-`#[derive(TurnCommands)]` already maps the names to variants.
+The conversation memory survives the switch, so “Spegnila” still turns off the
+lamp an English command selected. Every vocabulary in the map stays in memory,
+so drop the languages the device does not offer.
 
-Insert every phrase and stop at the first problem. This excerpt from the
-[run-time vocabulary tests][runtime-example] parses the payload with
-`serde_json`, which firmware can swap for any parser:
-
-```rust
-{{#include ../../crates/esp-agent/tests/runtime_vocabulary.rs:coordinator}}
-```
-
-Build the whole language first, and install it only if every insertion
-succeeded. Otherwise keep the current language and report the error to the
-coordinator:
-
-```rust
-{{#include ../../crates/esp-agent/tests/runtime_vocabulary.rs:runtime_switch}}
-```
-
-The conversation memory survives this switch too, so “Spegnila” turns off the
-lamp that the English command selected. The new vocabulary replaces the old one,
-which is dropped and frees its memory. While you build it, both are in memory.
-
-A payload without any phrase builds an empty vocabulary that recognizes
-nothing. Check `RuntimeVocabulary::is_empty` before installing if the device
-should refuse it.
-
-### Limit what a payload can take
-
-Inserting never aborts when memory runs out: it returns
-`VocabularyError::OutOfMemory`. A vocabulary also holds at most 256 phrases and
-16 KiB of phrase text. The byte limit counts text, not heap: each stored phrase
-also costs bookkeeping, and a short one can occupy a few hundred bytes, so a
-full vocabulary takes far more than its text. Size `max_phrases` for the heap
-your firmware can spare. Set tighter or wider bounds with
-`RuntimeVocabulary::with_limits`:
-
-```rust
-let mut words = RuntimeVocabulary::<Action>::with_limits(VocabularyLimits {
-    max_phrases: 64,
-    max_bytes: 4 * 1024,
-});
-```
-
-These bounds cover the vocabulary only. Your transport and parser allocate on
-their own, so also cap the size of the payload you accept.
-
-The [vocabularies reference](reference/vocabularies.md) lists the matching rules
-and the checks.
+The [vocabularies reference](reference/vocabularies.md) lists the matching rules,
+the memory limits, and every error. The
+[discovered devices example](turns.md#example-with-discovered-devices) uses this
+map in a complete conversation.
 
 [example]: https://github.com/veeso/esp-agent/blob/main/crates/esp-agent/tests/vocabulary.rs
-[runtime-example]: https://github.com/veeso/esp-agent/blob/main/crates/esp-agent/tests/runtime_vocabulary.rs
