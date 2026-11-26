@@ -2,6 +2,41 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.2.0
+
+Released on 2026-11-26
+
+### Added
+
+- build target catalogs from devices discovered at runtime (#39)
+
+> Firmware that learns its devices after startup, from a scan or a coordinator, can now build a DynamicTargetCatalog and use it with TurnCommands::handler like a targets! catalog. The target! macro builds each entry from runtime IDs, names, and reply aliases, with positional or named arguments. insert_choice and insert_group keep the distinction between choosing one device and acting on a whole group, and remove and clear refresh the catalog between turns. Every insertion is checked with the rules targets! applies at build time and returns a CatalogError without changing the catalog. The handler now accepts any TargetLookup, which both catalogs implement.
+
+- **commands:** switch command languages at run time (#38)
+
+> Firmware can replace the phrases its command handler understands while a
+> conversation is running. The agent keeps its remembered targets and any
+> pending question across the switch.
+>
+> A language is either compiled into the firmware or received while it runs:
+>
+> - vocabulary! declares the phrases of one language for an action enum. A
+>   previous phrase such as "spegnila" refers to the remembered target
+>   without naming it.
+> - RuntimeVocabulary builds a language from strings, such as those a
+>   coordinator sends. Each phrase is checked with the rules of vocabulary!
+>   within VocabularyLimits, and a bad or oversized phrase returns a
+>   VocabularyError instead of aborting. It matches input like a compiled
+>   vocabulary and matching allocates nothing.
+>
+> Build a switchable handler with CommandHandler::new, select a language with
+> set_vocabulary, and restore the derived patterns with Vocabulary::derived.
+> Both methods accept either kind of vocabulary. The TurnCommands derive also
+> implements NamedActions, so run-time phrases name the variants directly.
+>
+> The pattern rules move to the new esp-agent-patterns crate, which the
+> macros and the library share. It must be published before them.
+
 ## 0.1.0
 
 Released on 2026-11-25
